@@ -151,38 +151,65 @@ def get_inference_op(features):
 
         logits = tf.nn.relu(tf.matmul(hidden1, weight) + bias, name="logits")
 
+        logits_ss, logits_sa = tf.split(logits,
+                                        [net_config.label_first_size, net_config.label_second_size],
+                                        axis=1, name="split_logits")
 
-    return logits
+    return logits_ss, logits_sa
 
 
-def get_loss_op(logits, labels):
-    # split the logits and labels into secondary structure and solvent  accessibility
-    logits_ss, logits_sa = tf.split(logits,
-                                    [net_config.label_first_size, net_config.label_second_size],
-                                    axis=1, name="split_logits")
-
+def split_labels(labels):
+    """
+    split the label to secondary structure part and solvent accessibility part
+    :param labels:
+    :return:
+    """
     flat_labels = tf.reshape(labels, [-1, net_config.label_size], name="flat_labels")
     labels_ss, labels_sa = tf.split(flat_labels,
                                     [net_config.label_first_size, net_config.label_second_size],
                                     axis=1, name="split_labels")
 
+    return labels_ss, labels_sa
+
+def get_loss_op(logits_ss, logits_sa, labels_ss, labels_sa):
     # calculate the losses separately
     entropy_ss = tf.nn.softmax_cross_entropy_with_logits(labels=labels_ss, logits=logits_ss, name="entropy_ss")
     entropy_sa = tf.nn.softmax_cross_entropy_with_logits(labels=labels_sa, logits=logits_sa, name="entropy_sa")
     # add regularization
     reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     loss = tf.reduce_mean(entropy_ss) + tf.reduce_mean(entropy_sa) + tf.add_n(reg_losses)
+    tf.summary.scalar("loss", loss)
     return loss
 
 
 def get_train_op(loss, global_step):
     opt = tf.train.AdamOptimizer().minimize(loss, global_step=global_step)
+    tf.summary.scalar('global_step', global_step)
     return opt
 
 ##########################
 # test
 ##########################
 
+
+def get_accuracy_op(logits_ss, one_hot_labels):
+    """
+    calculate the q_8 (8 classes accuracy) not the "Q8" accuracy for 3 classes
+    :param logits:
+    :param one_hot_labels:
+    :return:
+    """
+    with tf.variable_scope("testing"):
+        logits_preds = tf.argmax(logits_ss, axis=1)
+        true_labels = tf.argmax(one_hot_labels, axis=1)
+        conf_mat = tf.confusion_matrix(logits_preds, true_labels, )
+        conf_mat_8 = tf.slice(conf_mat, begin=[0, 0], size=[8, 8], name="confusion_mat8")
+        tps = tf.diag_part(conf_mat_8, name="true_positives")
+        true_positive = tf.cast(tf.reduce_sum(tps), tf.float32)
+        total = tf.cast(tf.reduce_sum(conf_mat_8), tf.float32)
+        q_8 = tf.div(true_positive, total)
+
+    return q_8
 
 ###########################
 # training
