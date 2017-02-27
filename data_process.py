@@ -54,6 +54,7 @@ def read_data_from_example(file_name):
         "NC_terminals": data[:, :, 31:33],
         # convert to four classes one hot encoding
         "solvent_accessibility": convert_sa_to_one_hot(data[:, :, 33:35]),
+        # TODO profile only need 35:56
         "profile": data[:, :, 35:57]
     }
     seq_lens = get_seq_lenght(data_dict["ss_label"], [0] * 8 + [1])
