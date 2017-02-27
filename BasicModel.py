@@ -78,12 +78,8 @@ def _get_variable_with_regularization(name, shape, initializer, reg_w=net_config
 
 
 
-def get_inference_op(features):
+def get_inference_op(seq_features, profile):
     with tf.variable_scope("preprocess"):
-        # split input into sequence feature and profile
-        seq_features, profile = tf.split(features,
-                                         [net_config.in_first_size, net_config.in_second_size],
-                                         axis=2, name="split_features")
         embed_mat = _get_variable_with_regularization("embed_mat",
                                                       [net_config.in_first_size, net_config.embed_size],
                                                       tf.truncated_normal_initializer(stddev=0.1)
@@ -164,27 +160,45 @@ def split_labels(labels):
     :param labels:
     :return:
     """
-    flat_labels = tf.reshape(labels, [-1, net_config.label_size], name="flat_labels")
-    labels_ss, labels_sa = tf.split(flat_labels,
-                                    [net_config.label_first_size, net_config.label_second_size],
-                                    axis=1, name="split_labels")
+    with tf.variable_scope("split_label"):
+        flat_labels = tf.reshape(labels, [-1, net_config.label_size], name="flat_labels")
+        labels_ss, labels_sa = tf.split(flat_labels,
+                                        [net_config.label_first_size, net_config.label_second_size],
+                                        axis=1, name="split_labels")
 
     return labels_ss, labels_sa
 
+
+def split_features(features):
+    """
+    split features into sequence part and profile part
+    :param features:
+    :return:
+    """
+    # split input into sequence feature and profile
+    with tf.variable_scope("split_input"):
+        seq_features, profile = tf.split(features,
+                                         [net_config.in_first_size, net_config.in_second_size],
+                                         axis=2, name="split_features")
+    return seq_features, profile
+
+
 def get_loss_op(logits_ss, logits_sa, labels_ss, labels_sa):
-    # calculate the losses separately
-    entropy_ss = tf.nn.softmax_cross_entropy_with_logits(labels=labels_ss, logits=logits_ss, name="entropy_ss")
-    entropy_sa = tf.nn.softmax_cross_entropy_with_logits(labels=labels_sa, logits=logits_sa, name="entropy_sa")
-    # add regularization
-    reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-    loss = tf.reduce_mean(entropy_ss) + tf.reduce_mean(entropy_sa) + tf.add_n(reg_losses)
-    tf.summary.scalar("loss", loss)
+    with tf.variable_scope("loss_operator"):
+        # calculate the losses separately
+        entropy_ss = tf.nn.softmax_cross_entropy_with_logits(labels=labels_ss, logits=logits_ss, name="entropy_ss")
+        entropy_sa = tf.nn.softmax_cross_entropy_with_logits(labels=labels_sa, logits=logits_sa, name="entropy_sa")
+        # add regularization
+        reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        loss = tf.reduce_mean(entropy_ss) + tf.reduce_mean(entropy_sa) + tf.add_n(reg_losses)
+        tf.summary.scalar("loss", loss)
     return loss
 
 
 def get_train_op(loss, global_step):
-    opt = tf.train.AdamOptimizer().minimize(loss, global_step=global_step)
-    tf.summary.scalar('global_step', global_step)
+    with tf.variable_scope("objective_funciton"):
+        opt = tf.train.AdamOptimizer().minimize(loss, global_step=global_step)
+        tf.summary.scalar('global_step', global_step)
     return opt
 
 ##########################

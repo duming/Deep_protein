@@ -4,7 +4,18 @@ from sklearn import preprocessing
 DATA_SEQUENCE_LEN = 700
 
 
-
+def get_seq_lenght(seq_arry, end_symbol):
+    """
+    return an array of the length of each sequence in seq_arry
+    :param seq_arry: array of sequence should be shape of [array_size, max_sequence_length, size_of_symbol]
+    :param end_symbol: 1-D array code of the end_symbol
+    :return: array of shape [array_size]
+    """
+    scale_arry = np.argmax(seq_arry, axis=2)
+    end_symbol_scale = np.argmax(end_symbol)
+    cond = (scale_arry != end_symbol_scale).astype(np.int)
+    lens = cond.sum(axis=1)
+    return lens
 
 
 def convert_sa_to_one_hot(sa_array):
@@ -33,7 +44,7 @@ def read_data_from_example(file_name):
     """
 
     :param file_name: read matrix from file_name (.npy file)
-    :return:  data, label
+    :return:  data, label, lengths for each example
     """
     data = np.load(file_name)
     data = np.reshape(data, [-1, 700, 57])
@@ -45,9 +56,11 @@ def read_data_from_example(file_name):
         "solvent_accessibility": convert_sa_to_one_hot(data[:, :, 33:35]),
         "profile": data[:, :, 35:57]
     }
+    seq_lens = get_seq_lenght(data_dict["ss_label"], [0] * 8 + [1])
 
-    return np.concatenate((data_dict["aa_residues"], data_dict["profile"]), axis=2),\
-        np.concatenate((data_dict["ss_label"], data_dict["solvent_accessibility"]), axis=2)
+    return np.concatenate((data_dict["aa_residues"], data_dict["profile"]), axis=2), \
+           np.concatenate((data_dict["ss_label"], data_dict["solvent_accessibility"]), axis=2), \
+           seq_lens
 
 
 def get_train_valid_test(data, ratios):
@@ -73,23 +86,36 @@ def get_train_valid_test(data, ratios):
 
 
 class DataSet(object):
-    def __init__(self, data, label):
+    def __init__(self, data, label, lengths):
         if data.shape[0] != label.shape[0]:
             raise ValueError("data and label must have same length")
         if (data.shape[1] != DATA_SEQUENCE_LEN) or (label.shape[1] != DATA_SEQUENCE_LEN):
             raise ValueError("data and label sequence length not equals to:", DATA_SEQUENCE_LEN)
         self.data = data.astype(np.float32)
         self.label = label.astype(np.float32)
+        self.lengths = lengths.astype(np.int32)
         self.num_examples = label.shape[0]
         self.offset = 0
-
+    '''
     def next_batch(self, batch_size):
         last_offset = self.offset
         self.offset = (self.offset + batch_size) % (self.num_examples - batch_size)
         # Generate a minibatch.
         batch_data = self.data[self.offset:(self.offset + batch_size), ...]
         batch_labels = self.label[self.offset:(self.offset + batch_size), ...]
-        return batch_data, batch_labels, last_offset < self.offset
+        batch_lengths = self.lengths[self.offset:(self.offset + batch_size), ...]
+        return batch_data, batch_labels, batch_lengths, last_offset > self.offset
+    '''
+    def next_batch(self, batch_size):
+        last_offset = self.offset
+        self.offset = (self.offset + batch_size) % (self.num_examples - batch_size)
+        # Generate a minibatch.
+        #batch_data = self.data[self.offset:(self.offset + batch_size), ...]
+        #batch_labels = self.label[self.offset:(self.offset + batch_size), ...]
+        return np.zeros([64, 700, 44], dtype=np.float32), \
+            np.zeros([64, 700, 13], dtype=np.float32), \
+            np.ones([64, 1])*100,\
+            last_offset > self.offset
 
 
 '''
