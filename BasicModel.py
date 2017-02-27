@@ -215,7 +215,12 @@ def get_accuracy_op(logits_ss, one_hot_labels):
     """
     with tf.variable_scope("testing"):
         logits_preds = tf.add(tf.cast(tf.argmax(logits_ss, axis=1), dtype=tf.int32),
-                              tf.reduce_sum(logits_ss, axis=1))
+                              tf.cast(
+                                  tf.round(tf.reduce_sum(logits_ss, axis=1)),
+                                  dtype=tf.int32)
+                              )
+
+
         true_labels = tf.add(tf.cast(tf.argmax(one_hot_labels, axis=1), dtype=tf.int32),
                              tf.reduce_sum(one_hot_labels, axis=1))
         conf_mat = tf.confusion_matrix(logits_preds, true_labels, )
