@@ -9,7 +9,7 @@ tf.app.flags.DEFINE_string('save_path', '/Users/ming/projects/Deep_protein/exp_l
                            """Directory where to write event logs """
                            """and checkpoint.""")
 
-tf.app.flags.DEFINE_integer('epoch_num', 10000,
+tf.app.flags.DEFINE_integer('epoch_num', 2,
                             """Number of epoch to run.""")
 
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
@@ -61,7 +61,7 @@ def evaluate(session, eval_op, input_pl, label_pl, data_set):
 
 def main():
     data = read_data_from_example("/Users/ming/projects/DeepLearning/data/cullpdb+profile_6133.npy")
-    train_data, valid_data, test_data = get_train_valid_test(data, [0.7, 0.15, 0.15])
+    train_data, valid_data, test_data = get_train_valid_test(data, [0.1, 0.15, 0.15])
     train_dataset = DataSet(train_data[0], train_data[1], train_data[2])
     valid_dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
     test_dataset = DataSet(test_data[0], test_data[1], valid_data[2])
@@ -71,16 +71,18 @@ def main():
     gf = tf.Graph()
     with gf.as_default():
         with tf.variable_scope("inputs"):
-            input_pl = tf.placeholder(dtype=tf.float32,
-                                      shape=[None, net_config.seq_len, net_config.in_size],
-                                      name="input_place_holder")
-            label_pl = tf.placeholder(dtype=tf.float32,
-                                      shape=[None, net_config.seq_len, net_config.label_size],
-                                      name="label_place_holder")
+            with tf.device("/cpu:0"):
+                input_data = tf.constant(train_data[0], dtype=tf.float32)
+                input_label = tf.constant(train_data[1], dtype=tf.float32)
+
+            data, label = tf.train.slice_input_producer(
+                [input_data, input_label], num_epochs=FLAGS.epoch_num)
+            batch_data, batch_label = tf.train.batch(
+                [data, label], batch_size=FLAGS.batch_size)
             global_step = tf.contrib.framework.get_or_create_global_step()
             # split input
-            seq_features, profile = split_features(input_pl)
-            labels_ss, labels_sa = split_labels(label_pl)
+            seq_features, profile = split_features(batch_data)
+            labels_ss, labels_sa = split_labels(batch_label)
 
         logits_ss, logits_sa = get_inference_op(seq_features, profile)
         train_loss = get_loss_op(logits_ss, logits_sa, labels_ss, labels_sa)
@@ -88,32 +90,43 @@ def main():
         test_op = get_accuracy_op(logits_ss, labels_ss)
         summary_op = tf.summary.merge_all()
 
-        sv = tf.train.Supervisor(logdir=FLAGS.save_path, summary_op=None, save_model_secs=30)
+        init_op = tf.group(tf.global_variables_initializer(),
+                           tf.local_variables_initializer())
+
+        sv = tf.train.Supervisor(init_op=init_op, logdir=FLAGS.save_path, summary_op=None, save_model_secs=30)
         with sv.managed_session() as sess:
-            for i in range(FLAGS.epoch_num):
-                if sv.should_stop():
-                    break
-                ret = run_epoch(sess, {
-                    "loss": train_loss,
-                    "train_op": train_op,
-                    "summary_op": summary_op
-                    },
-                    input_pl, label_pl, train_dataset
-                )
+            iter = 0
+            #sv.start_queue_runners(sess)
+            while not sv.should_stop():
+                ret = sess.run({"loss": train_loss,
+                                "objective": train_op,
+                                "summary": summary_op}
+                               )
+                iter += 1
+                print(iter, ret["loss"])
                 sv.summary_computed(sess, ret["summary_op"])
+
+
     '''
+        init_op = tf.group(tf.global_variables_initializer(),
+                           tf.local_variables_initializer())
+
+
     with tf.Session(graph=gf) as sess:
-        tf.global_variables_initializer().run()
-        for step in range(10000):
-            data, label, is_end = train_dataset.next_batch(FLAGS.batch_size)
-            feed_dict = {
-                input_pl: data,
-                label_pl: label
-            }
-            #_, loss_value = sess.run([train_op, train_loss], feed_dict=feed_dict)
-            ret = run_epoch(sess, [train_loss, train_op], input_pl, label_pl, train_dataset)
-            #if step % 10 == 0:
-            #    print(loss_value)
+        #tf.global_variables_initializer().run()
+        sess.run(init_op)
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+        step = 0
+        while not coord.should_stop():
+            #data, label, is_end = train_dataset.next_batch(FLAGS.batch_size)
+
+            ret = sess.run({"loss": train_loss,
+                            "objective": train_op,
+                            "summary": summary_op}
+                           )
+            step += 1
+            print(step, ret["loss"])
     '''
 
     return
