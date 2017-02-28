@@ -13,13 +13,13 @@ class NetConfig(object):
         self.out_first_size = 9
         self.out_second_size = 4
         '''
-        self.label_first_size = 9
+        self.label_first_size = 8
         self.label_second_size = 4
 
         self.label_size = self.label_first_size + self.label_second_size
         # preprocess
-        self.in_first_size = 22
-        self.in_second_size = 22
+        self.in_first_size = 21
+        self.in_second_size = 21
         self.in_size = self.in_first_size + self.in_second_size
         self.embed_size = 50
 
@@ -206,7 +206,7 @@ def get_train_op(loss, global_step):
 ##########################
 
 
-def get_accuracy_op(logits_ss, one_hot_labels):
+def get_accuracy_op(logits_ss, one_hot_labels, input_length):
     """
     calculate the q_8 (8 classes accuracy) not the "Q8" accuracy for 3 classes
     :param logits:
@@ -214,6 +214,7 @@ def get_accuracy_op(logits_ss, one_hot_labels):
     :return:
     """
     with tf.variable_scope("testing"):
+        logits_ss = tf.nn.softmax(logits_ss)
         logits_preds = tf.add(tf.cast(tf.argmax(logits_ss, axis=1), dtype=tf.int32),
                               tf.cast(
                                   tf.round(tf.reduce_sum(logits_ss, axis=1)),
@@ -223,8 +224,9 @@ def get_accuracy_op(logits_ss, one_hot_labels):
 
         true_labels = tf.add(tf.cast(tf.argmax(one_hot_labels, axis=1), dtype=tf.int32),
                              tf.reduce_sum(one_hot_labels, axis=1))
-        conf_mat = tf.confusion_matrix(logits_preds, true_labels, )
-        conf_mat_8 = tf.slice(conf_mat, begin=[0, 0], size=[8, 8], name="confusion_mat8")
+        conf_mat = tf.confusion_matrix(logits_preds, true_labels, num_classes=9)
+        conf_mat_8 = tf.slice(conf_mat, begin=[1, 1], size=[8, 8], name="confusion_mat8")
+
         tps = tf.diag_part(conf_mat_8, name="true_positives")
         true_positive = tf.cast(tf.reduce_sum(tps), tf.float32)
         total = tf.cast(tf.reduce_sum(conf_mat_8), tf.float32)

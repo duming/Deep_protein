@@ -11,8 +11,8 @@ def get_seq_lenght(seq_arry, end_symbol):
     :param end_symbol: 1-D array code of the end_symbol
     :return: array of shape [array_size]
     """
-    scale_arry = np.argmax(seq_arry, axis=2)
-    end_symbol_scale = np.argmax(end_symbol)
+    scale_arry = np.argmax(seq_arry, axis=2) + np.sum(seq_arry, axis=2)
+    end_symbol_scale = np.argmax(end_symbol) + np.sum(end_symbol)
     cond = (scale_arry != end_symbol_scale).astype(np.int)
     lens = cond.sum(axis=1)
     return lens
@@ -49,15 +49,15 @@ def read_data_from_example(file_name):
     data = np.load(file_name)
     data = np.reshape(data, [-1, 700, 57])
     data_dict = {
-        "aa_residues": data[:, :, 0:22],
-        "ss_label": data[:, :, 22:31],
+        "aa_residues": data[:, :, 0:21],
+        "ss_label": data[:, :, 22:30],
         "NC_terminals": data[:, :, 31:33],
         # convert to four classes one hot encoding
         "solvent_accessibility": convert_sa_to_one_hot(data[:, :, 33:35]),
         # TODO profile only need 35:56
-        "profile": data[:, :, 35:57]
+        "profile": data[:, :, 35:56]
     }
-    seq_lens = get_seq_lenght(data_dict["ss_label"], [0] * 8 + [1])
+    seq_lens = get_seq_lenght(data_dict["ss_label"], [0] * 8)
 
     return np.concatenate((data_dict["aa_residues"], data_dict["profile"]), axis=2), \
            np.concatenate((data_dict["ss_label"], data_dict["solvent_accessibility"]), axis=2), \

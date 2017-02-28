@@ -42,8 +42,9 @@ cf_casp11 = np.asarray(
 print(cf_CB513)
 print(cf_CB513.sum())
 
-_, _, lengths = read_data_from_example("/Users/ming/projects/Deep_protein/data/cb513+profile_split1.npy")
+_, _, lengths = read_data_from_example("/home/dm/data_sets/cb513+profile_split1.npy")
 
+print(sum(lengths))
 
 label_dict_8 = dict(enumerate(['L', 'B', 'E', 'G', 'I', 'H', 'S', 'T', 'NoSeq']))
 # H=HGI, E=EB, C=STC
@@ -130,5 +131,5 @@ def test_accuracy_op():
 
 
 
-test_accuracy_op()
+#test_accuracy_op()
 
