@@ -1,5 +1,62 @@
 import numpy as np
 from sklearn import preprocessing
+import tensorflow as tf
+from tqdm import tqdm
+import os
+
+def covert_ICML2014_to_record(file_name):
+    """
+    convert ICML2014 dataset to tensorflow binary format
+    :param file_name_queue:
+    :return:
+    """
+    all_data, all_labels, all_length = read_data_from_example(file_name)
+    r_index = list(range(len(all_data)))
+    np.random.shuffle(r_index)
+    record_name = os.path.splitext(file_name)[0] + '.tfrecords'
+    writer = tf.python_io.TFRecordWriter(record_name)
+
+    for idx in tqdm(r_index):
+        label = np.reshape(all_labels[idx, ...], [-1])
+        data = np.reshape(all_data[idx, ...], [-1])
+        lengths = all_length[idx]
+        example = tf.train.Example(
+            # Example contains a Features proto object
+            features=tf.train.Features(
+                # Features contains a map of string to Feature proto objects
+                feature={
+                    # A Feature contains one of either a int64_list,
+                    # float_list, or bytes_list
+                    'label': tf.train.Feature(
+                        int64_list=tf.train.Int64List(value=label.astype(np.int64))),
+                    'data': tf.train.Feature(
+                        float_list=tf.train.FloatList(value=data)),
+                    'length': tf.train.Feature(
+                        int64_list=tf.train.Int64List(value=[lengths]))
+                }
+            )
+        )
+        serialized = example.SerializeToString()
+        writer.write(serialized)
+
+
+def read_record_file_for_test(file_name):
+    i = 0
+    for serialized_example in tf.python_io.tf_record_iterator(file_name):
+        example = tf.train.Example()
+        example.ParseFromString(serialized_example)
+
+        # traverse the Example format to get data
+        length = example.features.feature['length'].int64_list.value[0]
+        data = example.features.feature['data'].float_list.value[:]
+        label = example.features.feature['label'].int64_list.value[:]
+        # do something
+        #print(length)
+        #print(label)
+        #print(data)
+        i += 1
+    print(i)
+
 
 DATA_SEQUENCE_LEN = 700
 
@@ -54,7 +111,6 @@ def read_data_from_example(file_name):
         "NC_terminals": data[:, :, 31:33],
         # convert to four classes one hot encoding
         "solvent_accessibility": convert_sa_to_one_hot(data[:, :, 33:35]),
-        # TODO profile only need 35:56
         "profile": data[:, :, 35:56]
     }
     seq_lens = get_seq_lenght(data_dict["ss_label"], [0] * 8)
