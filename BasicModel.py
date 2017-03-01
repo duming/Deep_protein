@@ -45,6 +45,57 @@ net_config = NetConfig()
 ###########################
 # model
 ###########################
+class Model(object):
+    def __init__(self, config, is_training, input_):
+        self.is_training = is_training
+        if not is_training:
+            config.epoch_num = 1
+            self.batch_size = config.batch_size
+            self.batch_per_epoch = int(np.ceil(len(input_[0]) / self.batch_size))
+            print("batch_per_epoch", self.batch_per_epoch)
+
+        with tf.variable_scope("inputs"):
+            with tf.device("/cpu:0"):
+                input_data = tf.constant(input_[0], dtype=tf.float32)
+                input_label = tf.constant(input_[1], dtype=tf.int32)
+                input_len = tf.constant(input_[2], dtype=tf.int32)
+            if is_training:
+                #data, label, lengths = tf.train.slice_input_producer(
+                #    [input_data, input_label, input_len], num_epochs=config.epoch_num)
+                batch_data, batch_label, batch_lengths = \
+                    tf.train.batch(
+                        [input_data, input_label, input_len], enqueue_many=True,
+                        batch_size=config.batch_size)
+            else:
+                # if is not training prepare for validation and testing
+                #data, label, lengths = tf.train.slice_input_producer(
+                #    [input_data, input_label, input_len], shuffle=False)
+                batch_data, batch_label, batch_lengths = tf.train.batch(
+                    [input_data, input_label, input_len], enqueue_many=True,
+                    batch_size=config.batch_size, allow_smaller_final_batch=True)
+
+            global_step = tf.contrib.framework.get_or_create_global_step()
+            # split input
+            seq_features, profile = split_features(batch_data)
+            labels_ss, labels_sa = split_labels(batch_label)
+
+        logits_ss, logits_sa = get_inference_op(seq_features, profile)
+        if is_training:
+            self.train_loss = get_loss_op(logits_ss, logits_sa, labels_ss, labels_sa)
+            self.train_op = get_train_op(self.train_loss, global_step)
+
+            # self.summary_op = tf.summary.merge_all()
+            self.fetches = {
+                "loss": self.train_loss,
+                "objective": self.train_op,
+            }
+        else:
+            self.accuracy_op = get_accuracy_op(logits_ss, labels_ss, batch_lengths)
+            self.fetches = {"evaluation": self.accuracy_op[0],
+                            "example_count": self.accuracy_op[1],
+                            }
+
+
 def _activation_summary(x):
     """Helper to create summaries for activations.
     Creates a summary that provides a histogram of activations.
@@ -213,7 +264,7 @@ def get_accuracy_op(logits_ss, one_hot_labels, input_length):
     :param one_hot_labels:
     :return:
     """
-    with tf.variable_scope("testing"):
+    with tf.variable_scope("accuracy"):
         logits_ss = tf.nn.softmax(logits_ss)
         logits_preds = tf.add(tf.cast(tf.argmax(logits_ss, axis=1), dtype=tf.int32),
                               tf.cast(
@@ -230,9 +281,12 @@ def get_accuracy_op(logits_ss, one_hot_labels, input_length):
         tps = tf.diag_part(conf_mat_8, name="true_positives")
         true_positive = tf.cast(tf.reduce_sum(tps), tf.float32)
         total = tf.cast(tf.reduce_sum(conf_mat_8), tf.float32)
-        q_8 = tf.div(true_positive, total)
+        q_8 = tf.div(true_positive, total, "accuracy_q8")
 
-    return q_8
+        # additional info for debug and monitor
+        example_count = tf.slice(tf.shape(logits_ss), [0], [1])
+        tf.summary.scalar("accuracy", q_8)
+    return q_8, example_count
 
 ###########################
 # training
