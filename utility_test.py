@@ -133,3 +133,49 @@ def test_accuracy_op():
 
 #test_accuracy_op()
 
+data6133_filtered = "/home/dm/data_sets/cullpdb+profile_6133_filtered.npy"
+data6133_filtered_record = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
+#covert_ICML2014_to_record(data6133_filtered)
+split_and_convert(data6133_filtered)
+#read_record_file_for_test(data6133_filtered_record)
+
+def test_input():
+    graph = tf.Graph()
+    file_name = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
+    with graph.as_default():
+        filename_queue = tf.train.string_input_producer(
+            [file_name], num_epochs=1000)
+        op = batch_input(file_name, 1, 64)
+
+        init_op = tf.group(tf.global_variables_initializer(),
+                       tf.local_variables_initializer())
+
+    # Create a session for running operations in the Graph.
+    with tf.Session(graph=graph) as session:
+
+        # Initialize the variables (the trained variables and the
+        # epoch counter).
+        session.run(init_op)
+
+        # Start input enqueue threads.
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=session, coord=coord)
+
+        try:
+            step = 0
+            while not coord.should_stop():
+                ret = session.run(op)
+                step += 1
+        except tf.errors.OutOfRangeError:
+            print('Done  %d steps.' % step)
+        finally:
+            # When done, ask the threads to stop.
+            coord.request_stop()
+
+        # Wait for threads to finish.
+        coord.join(threads)
+
+
+
+
+#test_input()

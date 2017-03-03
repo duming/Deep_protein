@@ -3,18 +3,35 @@ from sklearn import preprocessing
 import tensorflow as tf
 from tqdm import tqdm
 import os
+DATA_SEQUENCE_LEN = 700
 
-def covert_ICML2014_to_record(file_name):
+def split_and_convert(file_name):
+    data = read_data_from_example(file_name)
+    train_data, valid_data, _ = get_train_valid_test(data, [0.85, 0.15, 0])
+    record_prefix = os.path.splitext(file_name)[0]
+
+    # save training data
+    train_file = record_prefix + "_train.tfrecords"
+    convert_ICML2014_to_record(train_data, train_file)
+
+    # save valid data
+    valid_file = record_prefix + "_valid.tfrecords"
+    convert_ICML2014_to_record(valid_data, valid_file)
+
+
+def convert_ICML2014_to_record(input_data, file_name):
     """
     convert ICML2014 dataset to tensorflow binary format
     :param file_name_queue:
     :return:
     """
-    all_data, all_labels, all_length = read_data_from_example(file_name)
+    all_data = input_data[0]
+    all_labels = input_data[1]
+    all_length = input_data[2]
     r_index = list(range(len(all_data)))
     np.random.shuffle(r_index)
-    record_name = os.path.splitext(file_name)[0] + '.tfrecords'
-    writer = tf.python_io.TFRecordWriter(record_name)
+
+    writer = tf.python_io.TFRecordWriter(file_name)
 
     for idx in tqdm(r_index):
         label = np.reshape(all_labels[idx, ...], [-1])
@@ -30,7 +47,7 @@ def covert_ICML2014_to_record(file_name):
                     'label': tf.train.Feature(
                         int64_list=tf.train.Int64List(value=label.astype(np.int64))),
                     'data': tf.train.Feature(
-                        float_list=tf.train.FloatList(value=data)),
+                        float_list=tf.train.FloatList(value=data.astype(np.float64))),
                     'length': tf.train.Feature(
                         int64_list=tf.train.Int64List(value=[lengths]))
                 }
@@ -58,7 +75,35 @@ def read_record_file_for_test(file_name):
     print(i)
 
 
-DATA_SEQUENCE_LEN = 700
+def read_parse_records(filename_queue):
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+    features = tf.parse_single_example(
+        serialized_example,
+        # Defaults are not specified since both keys are required.
+        features={
+            'label': tf.FixedLenFeature([DATA_SEQUENCE_LEN * 12], tf.int64),
+            'data': tf.FixedLenFeature([DATA_SEQUENCE_LEN * 42], tf.float32),
+            'length': tf.FixedLenFeature([1], tf.int64)
+        })
+    data = tf.reshape(tf.cast(features['data'], tf.float32), [DATA_SEQUENCE_LEN, -1])
+    label = tf.reshape(tf.cast(features['label'], tf.int32), [DATA_SEQUENCE_LEN, -1])
+    length = tf.cast(features['length'], tf.int32)
+    return data, label, length
+
+
+def batch_input(file_name, num_epochs, batch_size):
+    with tf.name_scope('input'):
+        filename_queue = tf.train.string_input_producer(
+            [file_name], num_epochs=num_epochs)
+        data, label, length = read_parse_records(filename_queue)
+        b_data, b_label, b_length = tf.train.batch([data, label, length],
+                                                   batch_size=batch_size,
+                                                   capacity=128,
+                                                   )
+    return b_data, b_label, b_length
+
+
 
 
 def get_seq_lenght(seq_arry, end_symbol):

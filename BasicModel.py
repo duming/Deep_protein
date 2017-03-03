@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from data_process import *
 ########################
 # file input output
 ########################
@@ -46,33 +47,28 @@ net_config = NetConfig()
 # model
 ###########################
 class Model(object):
-    def __init__(self, config, is_training, input_):
+    def __init__(self, config, is_training, input_filename):
         self.is_training = is_training
         if not is_training:
-            config.epoch_num = 1
-            self.batch_size = config.batch_size
-            self.batch_per_epoch = int(np.ceil(len(input_[0]) / self.batch_size))
-            print("batch_per_epoch", self.batch_per_epoch)
+            #config.epoch_num = 1
+            #self.batch_size = config.batch_size
+            #self.batch_per_epoch = int(np.ceil(len(input_[0]) / self.batch_size))
+            #print("batch_per_epoch", self.batch_per_epoch)
+            # TODO
+            pass
 
         with tf.variable_scope("inputs"):
-            with tf.device("/cpu:0"):
-                input_data = tf.constant(input_[0], dtype=tf.float32)
-                input_label = tf.constant(input_[1], dtype=tf.int32)
-                input_len = tf.constant(input_[2], dtype=tf.int32)
             if is_training:
                 #data, label, lengths = tf.train.slice_input_producer(
                 #    [input_data, input_label, input_len], num_epochs=config.epoch_num)
                 batch_data, batch_label, batch_lengths = \
-                    tf.train.batch(
-                        [input_data, input_label, input_len], enqueue_many=True,
-                        batch_size=config.batch_size)
+                    batch_input(input_filename, config.epoch_num, config.batch_size)
             else:
                 # if is not training prepare for validation and testing
-                #data, label, lengths = tf.train.slice_input_producer(
-                #    [input_data, input_label, input_len], shuffle=False)
-                batch_data, batch_label, batch_lengths = tf.train.batch(
-                    [input_data, input_label, input_len], enqueue_many=True,
-                    batch_size=config.batch_size, allow_smaller_final_batch=True)
+                batch_data, batch_label, batch_lengths = \
+                    batch_input(input_filename, config.epoch_num, config.batch_size)
+                # TODO
+                pass
 
             global_step = tf.contrib.framework.get_or_create_global_step()
             # split input
@@ -83,11 +79,12 @@ class Model(object):
         if is_training:
             self.train_loss = get_loss_op(logits_ss, logits_sa, labels_ss, labels_sa)
             self.train_op = get_train_op(self.train_loss, global_step)
-
+            self.accuracy_op = get_accuracy_op(logits_ss, labels_ss, batch_lengths)
             # self.summary_op = tf.summary.merge_all()
             self.fetches = {
                 "loss": self.train_loss,
                 "objective": self.train_op,
+                "evaluation": self.accuracy_op[0]
             }
         else:
             self.accuracy_op = get_accuracy_op(logits_ss, labels_ss, batch_lengths)
