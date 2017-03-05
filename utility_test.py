@@ -5,6 +5,8 @@ from sklearn import datasets
 from sklearn import preprocessing, metrics
 import tensorflow as tf
 from BasicModel import *
+import os
+
 cf_CB513 = np.asarray(
     [[11679, 9, 2888, 216, 0, 974, 987, 1167],
      [588, 31, 294, 12, 0, 98, 66, 92],
@@ -136,7 +138,7 @@ def test_accuracy_op():
 data6133_filtered = "/home/dm/data_sets/cullpdb+profile_6133_filtered.npy"
 data6133_filtered_record = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
 #covert_ICML2014_to_record(data6133_filtered)
-split_and_convert(data6133_filtered)
+#split_and_convert(data6133_filtered)
 #read_record_file_for_test(data6133_filtered_record)
 
 def test_input():
@@ -179,3 +181,17 @@ def test_input():
 
 
 #test_input()
+"""
+f_name = "/home/dm/data_sets/cb513+profile_split1.npy"
+data_513 = read_data_from_example(f_name)
+n_name = os.path.splitext(f_name)[0] + ".tfrecords"
+convert_ICML2014_to_record(data_513, n_name)
+"""
+is_k = None
+
+if is_k :
+    print("A")
+elif is_k == "bbb":
+    print("bbb")
+else:
+    print("default")

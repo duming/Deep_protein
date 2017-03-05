@@ -73,22 +73,18 @@ def main():
 
     gf = tf.Graph()
     with gf.as_default():
-        with tf.name_scope("train"):
-            with tf.variable_scope("model", reuse=False):
-                train_model = Model(FLAGS, True, "/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords")
-        """
-        with tf.name_scope("validation"):
-            with tf.variable_scope("model", reuse=True):
-                valid_model = Model(FLAGS, False, valid_data)
-        """
+        train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cb513+profile_split1.tfrecords"])
+        train_model.build_graph()
         summary_op = tf.summary.merge_all()
         ft = train_model.fetches
         ft["summary"] = summary_op
+
         sv = tf.train.Supervisor(logdir=FLAGS.save_path, summary_op=None, save_model_secs=300)
         with sv.managed_session() as sess:
             iter = 0
             #sv.start_queue_runners(sess)
-            while not sv.should_stop():
+
+            while True:#not sv.should_stop():
                 try:
                     ret = sess.run(ft)
 

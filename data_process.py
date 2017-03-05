@@ -75,33 +75,6 @@ def read_record_file_for_test(file_name):
     print(i)
 
 
-def read_parse_records(filename_queue):
-    reader = tf.TFRecordReader()
-    _, serialized_example = reader.read(filename_queue)
-    features = tf.parse_single_example(
-        serialized_example,
-        # Defaults are not specified since both keys are required.
-        features={
-            'label': tf.FixedLenFeature([DATA_SEQUENCE_LEN * 12], tf.int64),
-            'data': tf.FixedLenFeature([DATA_SEQUENCE_LEN * 42], tf.float32),
-            'length': tf.FixedLenFeature([1], tf.int64)
-        })
-    data = tf.reshape(tf.cast(features['data'], tf.float32), [DATA_SEQUENCE_LEN, -1])
-    label = tf.reshape(tf.cast(features['label'], tf.int32), [DATA_SEQUENCE_LEN, -1])
-    length = tf.cast(features['length'], tf.int32)
-    return data, label, length
-
-
-def batch_input(file_name, num_epochs, batch_size):
-    with tf.name_scope('input'):
-        filename_queue = tf.train.string_input_producer(
-            [file_name], num_epochs=num_epochs)
-        data, label, length = read_parse_records(filename_queue)
-        b_data, b_label, b_length = tf.train.batch([data, label, length],
-                                                   batch_size=batch_size,
-                                                   capacity=128,
-                                                   )
-    return b_data, b_label, b_length
 
 
 
