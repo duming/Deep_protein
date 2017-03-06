@@ -75,7 +75,8 @@ def _get_variable_with_regularization(name, shape, initializer, reg_w=net_config
 class Model(object):
     def __init__(self, config, mode, input_file_list=None):
         assert mode in ["train", "eval", "inference"]
-        self.epoch_num = config.epoch_num
+        if mode == "train":
+            self.epoch_num = config.epoch_num
         self.batch_size = config.batch_size
         self.mode = mode
         self.input_file_list = input_file_list
@@ -154,9 +155,10 @@ class Model(object):
                 batch_data = self.batch_data_pl = tf.placeholder(dtype=tf.float32,
                                                               shape=[None, net_config.seq_len, net_config.in_size],
                                                               name="input_data_pl")
-                batch_label = self.batch_label_pl = tf.placeholder(dtype=tf.int32,
-                                                                   shape=[None, net_config.seq_len, net_config.in_size],
-                                                                   name="input_label_pl")
+                batch_label = self.batch_label_pl = \
+                    tf.placeholder(dtype=tf.int32,
+                                   shape=[None, net_config.seq_len, net_config.label_size],
+                                   name="input_label_pl")
 
             self.global_step = tf.contrib.framework.get_or_create_global_step()
             # split input

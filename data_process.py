@@ -171,34 +171,16 @@ class DataSet(object):
         self.lengths = lengths.astype(np.int32)
         self.num_examples = label.shape[0]
         self.offset = 0
-    '''
+
     def next_batch(self, batch_size):
         last_offset = self.offset
-        self.offset = (self.offset + batch_size) % (self.num_examples - batch_size)
+        next_offset = (self.offset + batch_size)
+        if next_offset > self.num_examples:
+            batch_size = self.num_examples - self.offset
+            next_offset = 0
         # Generate a minibatch.
         batch_data = self.data[self.offset:(self.offset + batch_size), ...]
         batch_labels = self.label[self.offset:(self.offset + batch_size), ...]
         batch_lengths = self.lengths[self.offset:(self.offset + batch_size), ...]
+        self.offset = next_offset
         return batch_data, batch_labels, batch_lengths, last_offset > self.offset
-    '''
-    def next_batch(self, batch_size):
-        last_offset = self.offset
-        self.offset = (self.offset + batch_size) % (self.num_examples - batch_size)
-        # Generate a minibatch.
-        #batch_data = self.data[self.offset:(self.offset + batch_size), ...]
-        #batch_labels = self.label[self.offset:(self.offset + batch_size), ...]
-        return np.zeros([64, 700, 44], dtype=np.float32), \
-            np.zeros([64, 700, 13], dtype=np.float32), \
-            np.ones([64, 1])*100,\
-            last_offset > self.offset
-
-
-'''
-def get_next_batch(data, input_pl, label_pl):
-    batch_data, batch_label = data.next_batch(FLAGS.batch_size)
-    fd = {
-        input_pl: batch_data,
-        label_pl: batch_label
-    }
-    return fd
-'''
