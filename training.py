@@ -1,6 +1,8 @@
 import tensorflow as tf
 from data_process import *
 from BasicModel import *
+import pickle as pkl
+from testing import run_once
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -18,32 +20,6 @@ tf.app.flags.DEFINE_boolean('log_device_placement', False,
 tf.app.flags.DEFINE_integer("batch_size", 64,
                             "number of batches")
 
-def run_epoch(session, fetches, input_pl, label_pl, data_set):
-    """
-    run one epoch
-    :param session: the session to run on
-    :param fetches: ops to be run
-    :param input_pl: input place holder
-    :param label_pl: label place holder
-    :param data_set: the data set to input
-    :return: return the average values of fetches
-    """
-    avg_loss = 0
-    iter_num = 0
-    while True:
-        data, label, lengths, is_end = data_set.next_batch(FLAGS.batch_size)
-        fd = {
-            input_pl: data,
-            label_pl: label
-        }
-        val = session.run(fetches, feed_dict=fd)
-        avg_loss += val["loss"]
-        iter_num += 1
-        if iter_num % 20 == 0:
-            print(avg_loss/iter_num)
-
-        if is_end:
-            return val
 
 
 def evaluate(session, e_model):
@@ -65,11 +41,11 @@ def evaluate(session, e_model):
 
 
 def main():
-    #data = read_data_from_example("/home/dm/data_sets/cullpdb+profile_6133_filtered.npy")
-    #train_data, valid_data, test_data = get_train_valid_test(data, [0.1, 0.15, 0])
-
-
-    #data, label, is_end = train_dataset.next_batch(FLAGS.batch_size)
+    valid_file = "/home/dm/data_sets/cullpdb+profile_6133_filtered_valid.pkl"
+    fh = open(valid_file, "rb")
+    valid_data = pkl.load(fh)
+    fh.close()
+    valid_dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
 
     gf = tf.Graph()
     with gf.as_default():
@@ -78,6 +54,9 @@ def main():
         summary_op = tf.summary.merge_all()
         ft = train_model.fetches
         ft["summary"] = summary_op
+        with tf.name_scope("valid"):
+            valid_model = Model(FLAGS, "valid")
+            valid_model.build_graph()
 
         sv = tf.train.Supervisor(logdir=FLAGS.save_path, summary_op=None, save_model_secs=300)
         with sv.managed_session() as sess:
@@ -93,11 +72,11 @@ def main():
                 iter += 1
                 sv.summary_computed(sess, ret["summary"])
                 print(ret["loss"], ret["evaluation"])
-                '''
-                if iter % 100 == 0:
+
+                if iter % 10 == 0:
                     # validation
-                    evaluate(sess, valid_model)
-                '''
+                    valid_precision = run_once(sess, valid_model, valid_dataset)
+                    print(valid_precision)
 
 
         '''

@@ -74,7 +74,7 @@ def _get_variable_with_regularization(name, shape, initializer, reg_w=net_config
 ###########################
 class Model(object):
     def __init__(self, config, mode, input_file_list=None):
-        assert mode in ["train", "eval", "inference"]
+        assert mode in ["train", "test", "valid", "inference"]
         if mode == "train":
             self.epoch_num = config.epoch_num
         self.batch_size = config.batch_size
@@ -105,7 +105,7 @@ class Model(object):
         :param input_label:
         :return:
         """
-        if self.mode == "eval":
+        if self.mode == "test" or "valid":
             # only need input file names, the graph will read the data
             # using preload data and feed the data and labels
             fd = {
@@ -118,8 +118,8 @@ class Model(object):
 
     def build_graph(self):
         self.build_input()
-        self.build_inference(self.seq_features, self.profile)
         if self.mode == "train":
+            self.build_inference(self.seq_features, self.profile, is_reuse=False)
             self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
             self.train_op = self.build_train_op(self.loss, self.global_step)
             self.build_accuracy(self.logits_ss, self.labels_ss)
@@ -128,7 +128,11 @@ class Model(object):
                 "objective": self.train_op,
                 "evaluation": self.q_8_accuracy
             }
-        elif self.mode == "eval":
+        elif self.mode == "valid" or self.mode == "test":
+            if self.mode == "valid":
+                self.build_inference(self.seq_features, self.profile, is_reuse=True)
+            else:
+                self.build_inference(self.seq_features, self.profile, is_reuse=False)
             self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
             self.build_accuracy(self.logits_ss, self.labels_ss)
             self.fetches = {
@@ -136,6 +140,7 @@ class Model(object):
                 "evaluation": self.q_8_accuracy
             }
         elif self.mode == "inference":
+            self.build_inference(self.seq_features, self.profile, is_reuse=False)
             self.fetches = {
                 "logits": self.logits_ss
             }
@@ -227,8 +232,8 @@ class Model(object):
     #################################################
     # Main model part
     #################################################
-    def build_inference(self, seq_features, profile):
-        with tf.name_scope("Model"):
+    def build_inference(self, seq_features, profile, is_reuse=False):
+        with tf.variable_scope("Model", reuse=is_reuse):
             with tf.variable_scope("preprocess"):
                 embed_mat = _get_variable_with_regularization("embed_mat",
                                                               [net_config.in_first_size, net_config.embed_size],

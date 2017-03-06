@@ -3,6 +3,7 @@ from sklearn import preprocessing
 import tensorflow as tf
 from tqdm import tqdm
 import os
+import pickle as pk
 DATA_SEQUENCE_LEN = 700
 
 def split_and_convert(file_name):
@@ -15,8 +16,10 @@ def split_and_convert(file_name):
     convert_ICML2014_to_record(train_data, train_file)
 
     # save valid data
-    valid_file = record_prefix + "_valid.tfrecords"
-    convert_ICML2014_to_record(valid_data, valid_file)
+    valid_file = record_prefix + "_valid.pkl"
+    fh = open(valid_file, "wb")
+    pk.dump(valid_data, fh)
+    fh.close()
 
 
 def convert_ICML2014_to_record(input_data, file_name):

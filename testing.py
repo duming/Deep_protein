@@ -8,8 +8,7 @@ FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_string("checkpoint_dir", "/home/dm/PycharmProjects/Deep_protein/exp_log",
                            "the directory for checkpoint files")
 
-tf.app.flags.DEFINE_integer("batch_size", 64,
-                            "number of batches")
+
 
 
 def run_once(session, model, data_set):
@@ -37,7 +36,7 @@ def evaluate():
 
     gf = tf.Graph()
     with gf.as_default():
-        test_model = Model(FLAGS, "eval")
+        test_model = Model(FLAGS, "test")
         test_model.build_graph()
 
 
@@ -51,4 +50,6 @@ def evaluate():
             print(acc, count)
 
 if __name__ == "__main__":
+    tf.app.flags.DEFINE_integer("batch_size", 64,
+                                "number of batches")
     evaluate()
