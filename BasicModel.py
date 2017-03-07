@@ -232,6 +232,9 @@ class Model(object):
     #################################################
     # Main model part
     #################################################
+    def build_rnn_layer(self):
+        pass
+
     def build_inference(self, seq_features, profile, is_reuse=False):
         with tf.variable_scope("Model", reuse=is_reuse):
             with tf.variable_scope("preprocess"):
