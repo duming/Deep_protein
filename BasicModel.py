@@ -24,13 +24,19 @@ class NetConfig(object):
         self.in_size = self.in_first_size + self.in_second_size
         self.embed_size = 50
 
-        #multiscal convolution
+        # multiscal convolution
         self.kernel1 = [3, self.embed_size + self.in_second_size, 64]
         self.kernel2 = [7, self.embed_size + self.in_second_size, 64]
         self.kernel3 = [11, self.embed_size + self.in_second_size, 64]
 
-        #fully connected
-        self.fc1 = [self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1], 64]
+        # rnn part
+        self.unit_num = 100
+        self.rnn_layer_num = 3
+        self.rnn_dropout_prob = 0.5
+        self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
+
+        # fully connected
+        self.fc1 = [self.rnn_output_size, 64]
         self.fc2 = [self.fc1[-1], self.label_size]
 
 
@@ -52,7 +58,7 @@ def _activation_summary(x):
     tensor_name = x.op.name
     tf.summary.histogram(tensor_name + '/activations', x)
     tf.summary.scalar(tensor_name + '/sparsity',
-                                       tf.nn.zero_fraction(x))
+                                    tf.nn.zero_fraction(x))
 
 
 def _get_variable_with_regularization(name, shape, initializer, reg_w=net_config.regu_coef):
@@ -64,9 +70,6 @@ def _get_variable_with_regularization(name, shape, initializer, reg_w=net_config
         regularizer=tf.contrib.layers.l2_regularizer(reg_w)
     )
     return var
-
-
-
 
 
 ###########################
@@ -96,6 +99,7 @@ class Model(object):
         self.q_8_accuracy = None
         self.fetches = None
         self.filename_queue = None
+        self.rnn_output = None
 
     def get_fed_dict(self, file_list=None, input_data=None, input_label=None):
         """
@@ -158,8 +162,8 @@ class Model(object):
             else:
                 # if is not training use feed dict instead
                 batch_data = self.batch_data_pl = tf.placeholder(dtype=tf.float32,
-                                                              shape=[None, net_config.seq_len, net_config.in_size],
-                                                              name="input_data_pl")
+                                                                 shape=[None, net_config.seq_len, net_config.in_size],
+                                                                 name="input_data_pl")
                 batch_label = self.batch_label_pl = \
                     tf.placeholder(dtype=tf.int32,
                                    shape=[None, net_config.seq_len, net_config.label_size],
@@ -232,8 +236,34 @@ class Model(object):
     #################################################
     # Main model part
     #################################################
-    def build_rnn_layer(self):
-        pass
+    def get_rnn_cell(self):
+        cell = tf.contrib.rnn.GRUCell(net_config.unit_num)
+
+        if self.mode == "train":
+            # apply dropout while training
+            return tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=net_config.rnn_dropout_prob)
+        else:
+            return cell
+
+    def build_rnn_layers(self, inputs):
+        with tf.variable_scope("rnn"):
+            # convert tensor to list of tensors for rnn
+            _inputs = tf.unstack(inputs, axis=1, name="unstack_for_rnn")
+            # construct multilayer rnn
+            for i in range(net_config.rnn_layer_num):
+               with tf.name_scope("layer_%d"%i):
+                    f_cell = self.get_rnn_cell()
+                    b_cell = self.get_rnn_cell()
+                    _inputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(f_cell, b_cell, _inputs,
+                                                                            dtype=tf.float32,
+                                                                            scope="bidirectional_rnn_%d" % i
+                                                                            )
+            # convert the output of rnn back to tensor
+            _rnn_output = tf.stack(_inputs, axis=1, name="stack_after_rnn")
+            # concatenate the input of the first layer to the output of the last layer
+            output = tf.concat([inputs, _rnn_output], axis=2, name="concat_input_output")
+        self.rnn_output = output
+        return output
 
     def build_inference(self, seq_features, profile, is_reuse=False):
         with tf.variable_scope("Model", reuse=is_reuse):
@@ -286,6 +316,10 @@ class Model(object):
                 concat_conv = tf.concat([conv1, conv2, conv3], axis=2)
                 _activation_summary(concat_conv)
 
+            # rnn part
+            rnn_output = self.build_rnn_layers(concat_conv)
+            _activation_summary(rnn_output)
+
             with tf.variable_scope("fully_connected1"):
                 weight = _get_variable_with_regularization("weight",
                                                            net_config.fc1,
@@ -293,7 +327,7 @@ class Model(object):
                 bias = tf.get_variable("bias", net_config.fc1[-1], dtype=tf.float32,
                                        initializer=tf.constant_initializer(value=0.5))
 
-                flat_conv = tf.reshape(concat_conv, [-1, net_config.fc1[0]])
+                flat_conv = tf.reshape(rnn_output, [-1, net_config.fc1[0]])
                 hidden1 = tf.nn.relu(tf.matmul(flat_conv, weight) + bias, name="hidden")
 
             with tf.variable_scope("fully_connected2"):
@@ -330,7 +364,7 @@ class Model(object):
 
     def build_train_op(self, loss, global_step):
         with tf.variable_scope("objective_funciton"):
-            opt = tf.train.AdamOptimizer().minimize(loss, global_step=global_step)
+            opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(loss, global_step=global_step)
             tf.summary.scalar('global_step', global_step)
         self.train_op = opt
         return opt

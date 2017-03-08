@@ -11,13 +11,13 @@ tf.app.flags.DEFINE_string('save_path', '/home/dm/PycharmProjects/Deep_protein/e
                            """Directory where to write event logs """
                            """and checkpoint.""")
 
-tf.app.flags.DEFINE_integer('epoch_num', 1000,
+tf.app.flags.DEFINE_integer('epoch_num', 10000,
                             """Number of epoch to run.""")
 
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-tf.app.flags.DEFINE_integer("batch_size", 64,
+tf.app.flags.DEFINE_integer("batch_size", 32,
                             "number of batches")
 
 
@@ -49,11 +49,12 @@ def main():
 
     gf = tf.Graph()
     with gf.as_default():
-        train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cb513+profile_split1.tfrecords"])
+        train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
         train_model.build_graph()
         summary_op = tf.summary.merge_all()
         ft = train_model.fetches
         ft["summary"] = summary_op
+
         with tf.name_scope("valid"):
             valid_model = Model(FLAGS, "valid")
             valid_model.build_graph()
@@ -73,7 +74,7 @@ def main():
                 sv.summary_computed(sess, ret["summary"])
                 print(ret["loss"], ret["evaluation"])
 
-                if iter % 10 == 0:
+                if iter % 100 == 0:
                     # validation
                     valid_precision = run_once(sess, valid_model, valid_dataset)
                     print(valid_precision)
