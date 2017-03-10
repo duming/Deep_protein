@@ -9,6 +9,7 @@ from data_process import *
 class NetConfig(object):
     def __init__(self):
         self.is_rnn = False
+        # regularization coefficient
         self.regu_coef = 0.001
         self.seq_len = 700
         '''

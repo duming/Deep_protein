@@ -3,6 +3,7 @@ from data_process import *
 from BasicModel import *
 import pickle as pkl
 from testing import run_once
+from operator import gt
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -40,6 +41,33 @@ def evaluate(session, e_model):
     print("evaluate %d proteins, get accuracy: %f" % (example_count/net_config.seq_len, e_val))
 
 
+class EarlyStop(object):
+
+    def __init__(self, max_step, metric=gt):
+        """
+        helper function for early stopping
+        :param max_step: max step of none improvement, otherwise early stop
+        :param is_stop_func: the function that compare new observation and current best
+        """
+        self.current_best = 0
+        self.step_from_best = 0
+        self.max_step = max_step
+        self.metric = metric
+
+    def should_stop_update(self, new_observation):
+        if self.metric(new_observation, self.current_best):
+            # new is better
+            self.current_best = new_observation
+            self.step_from_best = 0
+            return [False, True]
+        else:
+            self.step_from_best += 1
+            if self.step_from_best > self.max_step:
+                return [True, False]
+            else:
+                return [False, False]
+
+
 def main():
     valid_file = "/home/dm/data_sets/cullpdb+profile_6133_filtered_valid.pkl"
     fh = open(valid_file, "rb")
@@ -58,21 +86,23 @@ def main():
             valid_model.build_graph()
 
         sv = tf.train.Supervisor(logdir=FLAGS.save_path, summary_op=None, save_model_secs=300)
-        valid_writer = tf.summary.FileWriter(FLAGS.save_path + '/valid')
-
+        #valid_saver = tf.train.Saver(max_to_keep=1, name="valid_saver")
         with sv.managed_session() as sess:
             iter = 0
             #sv.start_queue_runners(sess)
-
+            best_acc = 0
             while True:#not sv.should_stop():
                 iter += 1
                 if iter % 50 == 0:
                     # validation
                     valid_precision, count, valid_ret = run_once(sess, valid_model, valid_dataset)
                     print(valid_precision, count)
-                    # TODO fix bug: when restoring from checkpoint, the summary graph doesn't plot properly.
+
+
+
                     # maybe caused by separately saving training summary and validation summary
-                    valid_writer.add_summary(valid_ret["summary"], global_step=valid_ret["step"])
+                    sv.summary_computed(sess, valid_ret["summary"])
+                    #valid_writer.add_summary(valid_ret["summary"], global_step=valid_ret["step"])
                 else:
                     try:
                         ret = sess.run(ft)
@@ -87,7 +117,7 @@ def main():
 
 
 
-        '''
+    '''
         init_op = tf.group(tf.global_variables_initializer(),
                            tf.local_variables_initializer())
 
