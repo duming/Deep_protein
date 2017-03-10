@@ -8,7 +8,8 @@ from data_process import *
 
 class NetConfig(object):
     def __init__(self):
-        self.regu_coef = 0.0001
+        self.is_rnn = False
+        self.regu_coef = 0.001
         self.seq_len = 700
         '''
         self.out_first_size = 9
@@ -30,14 +31,19 @@ class NetConfig(object):
         self.kernel3 = [11, self.embed_size + self.in_second_size, 64]
 
         # rnn part
-        self.unit_num = 100
-        self.rnn_layer_num = 3
+        self.unit_num = 50
+        self.rnn_layer_num = 1
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
 
         # fully connected
-        self.fc1 = [self.rnn_output_size, 64]
-        self.fc2 = [self.fc1[-1], self.label_size]
+        if self.is_rnn:
+            self.fc1 = [self.rnn_output_size, self.rnn_output_size]
+            self.fc2 = [self.fc1[-1], self.label_size]
+        else:
+            self.fc1 = [self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1],
+                        32]
+            self.fc2 = [self.fc1[-1], self.label_size]
 
 
 net_config = NetConfig()
@@ -61,7 +67,7 @@ def _activation_summary(x):
                                     tf.nn.zero_fraction(x))
 
 
-def _get_variable_with_regularization(name, shape, initializer, reg_w=net_config.regu_coef):
+def _get_variable_with_regularization(name, shape, initializer=None, reg_w=net_config.regu_coef):
     var = tf.get_variable(
         name,
         shape,
@@ -80,6 +86,9 @@ class Model(object):
         assert mode in ["train", "test", "valid", "inference"]
         if mode == "train":
             self.epoch_num = config.epoch_num
+        self.weight_initializer = tf.contrib.layers.xavier_initializer()
+        self.bias_initializer = tf.zeros_initializer()
+
         self.batch_size = config.batch_size
         self.mode = mode
         self.input_file_list = input_file_list
@@ -100,6 +109,8 @@ class Model(object):
         self.fetches = None
         self.filename_queue = None
         self.rnn_output = None
+        self.summary_loss = None
+        self.summary_accuracy = None
 
     def get_fed_dict(self, file_list=None, input_data=None, input_label=None):
         """
@@ -127,10 +138,14 @@ class Model(object):
             self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
             self.train_op = self.build_train_op(self.loss, self.global_step)
             self.build_accuracy(self.logits_ss, self.labels_ss)
+            summary_op = tf.summary.merge_all()
+
+
             self.fetches = {
                 "loss": self.loss,
                 "objective": self.train_op,
-                "evaluation": self.q_8_accuracy
+                "evaluation": self.q_8_accuracy,
+                "summary": summary_op
             }
         elif self.mode == "valid" or self.mode == "test":
             if self.mode == "valid":
@@ -141,7 +156,11 @@ class Model(object):
             self.build_accuracy(self.logits_ss, self.labels_ss)
             self.fetches = {
                 "loss": self.loss,
-                "evaluation": self.q_8_accuracy
+                "evaluation": self.q_8_accuracy,
+                "summary": tf.summary.merge([tf.summary.scalar("valid_loss", self.loss),
+                                             tf.summary.scalar("valid_accuracy", self.q_8_accuracy)],
+                                            name="valid_summary"),
+                "step": self.global_step
             }
         elif self.mode == "inference":
             self.build_inference(self.seq_features, self.profile, is_reuse=False)
@@ -266,11 +285,11 @@ class Model(object):
         return output
 
     def build_inference(self, seq_features, profile, is_reuse=False):
-        with tf.variable_scope("Model", reuse=is_reuse):
+        with tf.variable_scope("Model", reuse=is_reuse, initializer=self.weight_initializer):
             with tf.variable_scope("preprocess"):
                 embed_mat = _get_variable_with_regularization("embed_mat",
-                                                              [net_config.in_first_size, net_config.embed_size],
-                                                              tf.truncated_normal_initializer(stddev=0.1)
+                                                              [net_config.in_first_size, net_config.embed_size]
+                                                              #tf.truncated_normal_initializer(stddev=0.01)
                                                               )
                 seq_features_flat = tf.reshape(seq_features, [-1, net_config.in_first_size], "flatten")
                 embed_feature = tf.reshape(
@@ -285,31 +304,31 @@ class Model(object):
             with tf.variable_scope("multiscal_conv"):
                 # convolution with kernel 1
                 kernel1 = _get_variable_with_regularization("kernel1",
-                                                            net_config.kernel1,
-                                                            tf.truncated_normal_initializer(stddev=0.1)
+                                                            net_config.kernel1
+                                                            #tf.truncated_normal_initializer(stddev=0.01)
                                                             )
                 bias1 = tf.get_variable("bias1", net_config.kernel1[-1], dtype=tf.float32,
-                                        initializer=tf.constant_initializer(value=0.5))
+                                        initializer=self.bias_initializer)
                 z1 = tf.nn.conv1d(preprocessed_feature, kernel1, stride=1, padding="SAME", name="conv1")
                 conv1 = tf.nn.relu(z1 + bias1, "relu1")
 
                 # convolution with kernel 2
                 kernel2 = _get_variable_with_regularization("kernel2",
-                                                            net_config.kernel2,
-                                                            tf.truncated_normal_initializer(stddev=0.1)
+                                                            net_config.kernel2
+                                                            #tf.truncated_normal_initializer(stddev=0.01)
                                                             )
                 bias2 = tf.get_variable("bias2", net_config.kernel2[-1], dtype=tf.float32,
-                                        initializer=tf.constant_initializer(value=0.5))
+                                        initializer=self.bias_initializer)
                 z2 = tf.nn.conv1d(preprocessed_feature, kernel2, stride=1, padding="SAME", name="conv2")
                 conv2 = tf.nn.relu(z2 + bias2, "relu2")
 
                 # convolution with kernel3
                 kernel3 = _get_variable_with_regularization("kernel3",
-                                                            net_config.kernel3,
-                                                            tf.truncated_normal_initializer(stddev=0.1)
+                                                            net_config.kernel3
+                                                            #tf.truncated_normal_initializer(stddev=0.01)
                                                             )
                 bias3 = tf.get_variable("bias3", net_config.kernel1[-1], dtype=tf.float32,
-                                        initializer=tf.constant_initializer(value=0.5))
+                                        initializer=self.bias_initializer)
                 z3 = tf.nn.conv1d(preprocessed_feature, kernel3, stride=1, padding="SAME", name="conv3")
                 conv3 = tf.nn.relu(z3 + bias3, "relu3")
 
@@ -317,25 +336,29 @@ class Model(object):
                 _activation_summary(concat_conv)
 
             # rnn part
-            rnn_output = self.build_rnn_layers(concat_conv)
-            _activation_summary(rnn_output)
+            if net_config.is_rnn:
+                rnn_output = self.build_rnn_layers(concat_conv)
+                _activation_summary(rnn_output)
+                fc_input = rnn_output
+            else:
+                fc_input = concat_conv
 
             with tf.variable_scope("fully_connected1"):
                 weight = _get_variable_with_regularization("weight",
-                                                           net_config.fc1,
-                                                           tf.truncated_normal_initializer(stddev=0.5))
+                                                           net_config.fc1)
+                                                           #tf.truncated_normal_initializer(stddev=0.5))
                 bias = tf.get_variable("bias", net_config.fc1[-1], dtype=tf.float32,
-                                       initializer=tf.constant_initializer(value=0.5))
+                                       initializer=self.bias_initializer)
 
-                flat_conv = tf.reshape(rnn_output, [-1, net_config.fc1[0]])
+                flat_conv = tf.reshape(fc_input, [-1, net_config.fc1[0]])
                 hidden1 = tf.nn.relu(tf.matmul(flat_conv, weight) + bias, name="hidden")
 
             with tf.variable_scope("fully_connected2"):
                 weight = _get_variable_with_regularization("weight",
-                                                           net_config.fc2,
-                                                           tf.truncated_normal_initializer(stddev=0.5))
+                                                           net_config.fc2)
+                                                           #tf.truncated_normal_initializer(stddev=0.5))
                 bias = tf.get_variable("bias", net_config.fc2[-1], dtype=tf.float32,
-                                       initializer=tf.constant_initializer(value=0.5))
+                                       initializer=self.bias_initializer)
 
                 logits = tf.nn.relu(tf.matmul(hidden1, weight) + bias, name="logits")
 
@@ -364,7 +387,7 @@ class Model(object):
 
     def build_train_op(self, loss, global_step):
         with tf.variable_scope("objective_funciton"):
-            opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(loss, global_step=global_step)
+            opt = tf.train.AdadeltaOptimizer(learning_rate=1).minimize(loss, global_step=global_step)
             tf.summary.scalar('global_step', global_step)
         self.train_op = opt
         return opt

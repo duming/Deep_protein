@@ -1,7 +1,7 @@
 import tensorflow as tf
 from BasicModel import *
 from data_process import *
-
+import pickle as pkl
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -23,7 +23,7 @@ def run_once(session, model, data_set):
         print(val_dict["evaluation"])
         if is_end:
             break
-    return accuracy / count, count
+    return accuracy / count, count, val_dict
 
 
 def evaluate():
@@ -32,7 +32,13 @@ def evaluate():
     data, label, length = read_data_from_example(test_data_name)
     dataset = DataSet(data, label, length)
 
-
+    '''
+    valid_file = '/home/dm/data_sets/cullpdb+profile_6133_filtered_valid.pkl'
+    fh = open(valid_file, "rb")
+    valid_data = pkl.load(fh)
+    fh.close()
+    dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
+    '''
 
     gf = tf.Graph()
     with gf.as_default():
@@ -46,7 +52,7 @@ def evaluate():
         if ckpt and ckpt.model_checkpoint_path:
             # Restores from checkpoint
             saver.restore(session, ckpt.model_checkpoint_path)
-            acc, count = run_once(session, test_model, dataset)
+            acc, count, ret = run_once(session, test_model, dataset)
             print(acc, count)
 
 if __name__ == "__main__":

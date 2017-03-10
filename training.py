@@ -17,7 +17,7 @@ tf.app.flags.DEFINE_integer('epoch_num', 10000,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-tf.app.flags.DEFINE_integer("batch_size", 32,
+tf.app.flags.DEFINE_integer("batch_size", 128,
                             "number of batches")
 
 
@@ -51,33 +51,40 @@ def main():
     with gf.as_default():
         train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
         train_model.build_graph()
-        summary_op = tf.summary.merge_all()
         ft = train_model.fetches
-        ft["summary"] = summary_op
 
         with tf.name_scope("valid"):
             valid_model = Model(FLAGS, "valid")
             valid_model.build_graph()
 
         sv = tf.train.Supervisor(logdir=FLAGS.save_path, summary_op=None, save_model_secs=300)
+        valid_writer = tf.summary.FileWriter(FLAGS.save_path + '/valid')
+
         with sv.managed_session() as sess:
             iter = 0
             #sv.start_queue_runners(sess)
 
             while True:#not sv.should_stop():
-                try:
-                    ret = sess.run(ft)
-
-                except tf.errors.OutOfRangeError:
-                    break
                 iter += 1
-                sv.summary_computed(sess, ret["summary"])
-                print(ret["loss"], ret["evaluation"])
-
-                if iter % 100 == 0:
+                if iter % 50 == 0:
                     # validation
-                    valid_precision = run_once(sess, valid_model, valid_dataset)
-                    print(valid_precision)
+                    valid_precision, count, valid_ret = run_once(sess, valid_model, valid_dataset)
+                    print(valid_precision, count)
+                    # TODO fix bug: when restoring from checkpoint, the summary graph doesn't plot properly.
+                    # maybe caused by separately saving training summary and validation summary
+                    valid_writer.add_summary(valid_ret["summary"], global_step=valid_ret["step"])
+                else:
+                    try:
+                        ret = sess.run(ft)
+
+                    except tf.errors.OutOfRangeError:
+                        break
+
+                    sv.summary_computed(sess, ret["summary"])
+                    print(ret["loss"], ret["evaluation"])
+
+
+
 
 
         '''
