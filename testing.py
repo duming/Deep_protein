@@ -5,7 +5,7 @@ import pickle as pkl
 FLAGS = tf.app.flags.FLAGS
 
 
-tf.app.flags.DEFINE_string("checkpoint_dir", "/home/dm/PycharmProjects/Deep_protein/exp_log",
+tf.app.flags.DEFINE_string("checkpoint_dir", "/home/dm/PycharmProjects/Deep_protein/result",
                            "the directory for checkpoint files")
 
 
@@ -28,6 +28,7 @@ def run_once(session, model, data_set):
 
 def evaluate():
     log_dir = "/home/dm/PycharmProjects/Deep_protein/exp_log"
+
     test_data_name = '/home/dm/data_sets/cb513+profile_split1.npy'
     data, label, length = read_data_from_example(test_data_name)
     dataset = DataSet(data, label, length)
