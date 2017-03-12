@@ -48,7 +48,11 @@ def evaluate():
 
 
     with tf.Session(graph=gf) as session:
-        saver = tf.train.Saver()
+        if FLAGS.using_moving_average:
+            var_list = test_model.moving_average_maintainer.variables_to_restore()
+        else:
+            var_list = None
+        saver = tf.train.Saver(var_list=var_list)
         ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             # Restores from checkpoint
@@ -59,4 +63,6 @@ def evaluate():
 if __name__ == "__main__":
     tf.app.flags.DEFINE_integer("batch_size", 64,
                                 "number of batches")
+    tf.app.flags.DEFINE_integer("using_moving_average", False,
+                                "whether store from moving averages ")
     evaluate()

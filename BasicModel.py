@@ -37,6 +37,9 @@ class NetConfig(object):
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
 
+        # moving average
+        self.decay_rate = 0.999
+
         # fully connected
         if self.is_rnn:
             self.fc1 = [self.rnn_output_size, self.rnn_output_size]
@@ -106,6 +109,8 @@ class Model(object):
         self.logits_sa = None
         self.loss = None
         self.train_op = None
+        self.moving_average_train_op = None
+        self.moving_average_maintainer = None
         self.q_8_accuracy = None
         self.fetches = None
         self.filename_queue = None
@@ -138,13 +143,14 @@ class Model(object):
             self.build_inference(self.seq_features, self.profile, is_reuse=False)
             self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
             self.train_op = self.build_train_op(self.loss, self.global_step)
+            self.build_moving_average()
             self.build_accuracy(self.logits_ss, self.labels_ss)
             summary_op = tf.summary.merge_all()
 
 
             self.fetches = {
                 "loss": self.loss,
-                "objective": self.train_op,
+                "objective": self.moving_average_train_op,
                 "evaluation": self.q_8_accuracy,
                 "summary": summary_op
             }
@@ -154,6 +160,10 @@ class Model(object):
             else:
                 self.build_inference(self.seq_features, self.profile, is_reuse=False)
             self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
+            # build moving average only for restore
+            if self.mode == "test":
+                self.build_moving_average()
+
             self.build_accuracy(self.logits_ss, self.labels_ss)
             self.fetches = {
                 "loss": self.loss,
@@ -213,7 +223,7 @@ class Model(object):
 
     def _batch_input(self, file_list, num_epochs, batch_size):
         with tf.name_scope('batch_input'):
-            file_list_tensor = tf.Variable(file_list, dtype=tf.string)
+            file_list_tensor = tf.Variable(file_list, dtype=tf.string, trainable=False)
             filename_queue = tf.train.string_input_producer(
                 file_list_tensor, num_epochs=num_epochs)
             data, label, length = self._read_parse_records(filename_queue)
@@ -266,7 +276,7 @@ class Model(object):
             return cell
 
     def build_rnn_layers(self, inputs):
-        with tf.variable_scope("rnn"):
+        with tf.variable_scope("rnn", initializer=self.weight_initializer):
             # convert tensor to list of tensors for rnn
             _inputs = tf.unstack(inputs, axis=1, name="unstack_for_rnn")
             # construct multilayer rnn
@@ -429,9 +439,26 @@ class Model(object):
         self.q_8_accuracy = q_8
         return q_8, example_count
 
+    ##################################
+    # moving average
+    ###################################
+    def build_moving_average(self, decay=0.999):
+        """
+        Add operation that maintain moving averages of every trainable variables.
+        And return a encapsulate train_op when the mode is training
+        :param decay:
+        :return:
+        """
+        ema = tf.train.ExponentialMovingAverage(decay=decay)
+        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+        maintain_averages_op = ema.apply(var_list=var_list)
+        self.moving_average_maintainer = ema
+        if self.mode == "train":
+            with tf.control_dependencies([self.train_op]):
+                _train_op = tf.group(maintain_averages_op)
 
-
-
+            self.moving_average_train_op = _train_op
+            return _train_op
 
 
 
