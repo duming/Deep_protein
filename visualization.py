@@ -151,6 +151,14 @@ def plot_multi_line(line_list, title):
     plt.title(title)
     plt.show()
 
-line_list = load_dir_to_list("/Users/ming/projects/Deep_protein/cvs_dir")
-plot_multi_line(line_list, "Accuracy")
+line_list = load_dir_to_list("/home/dm/Desktop/result_csv/train/acc/")
+plot_multi_line(line_list, "Training Accuracy")
 
+line_list = load_dir_to_list("/home/dm/Desktop/result_csv/train/loss/")
+plot_multi_line(line_list, "Training Loss")
+
+line_list = load_dir_to_list("/home/dm/Desktop/result_csv/valid/acc/")
+plot_multi_line(line_list, "valid Accuracy")
+
+line_list = load_dir_to_list("/home/dm/Desktop/result_csv/valid/loss/")
+plot_multi_line(line_list, "valid loss")

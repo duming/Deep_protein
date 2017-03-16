@@ -78,7 +78,7 @@ def main():
     valid_data = pkl.load(fh)
     fh.close()
     valid_dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
-    early_stop = EarlyStop(10)
+    early_stop = EarlyStop(50)
     gf = tf.Graph()
     with gf.as_default():
         train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
@@ -90,12 +90,13 @@ def main():
             valid_model.build_graph()
 
         valid_saver = tf.train.Saver(max_to_keep=1, name="valid_saver")
-        sv = tf.train.Supervisor(logdir=FLAGS.save_path, summary_op=None, save_model_secs=300)
+        train_saver = tf.train.Saver(max_to_keep=1, name="train_saver")
+        sv = tf.train.Supervisor(logdir=FLAGS.save_path,saver=train_saver, summary_op=None, save_model_secs=300)
         with sv.managed_session() as sess:
             iter = 0
             while True:#not sv.should_stop():
                 iter += 1
-                if iter % 50 == 0:
+                if iter % 100 == 0:
                     # validation
                     valid_precision, count, valid_ret = run_once(sess, valid_model, valid_dataset)
                     print(valid_precision, count)
