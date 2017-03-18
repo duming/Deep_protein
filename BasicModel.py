@@ -33,7 +33,7 @@ class NetConfig(object):
 
         # rnn part
         self.unit_num = 50
-        self.rnn_layer_num = 2
+        self.rnn_layer_num = 1
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
 
