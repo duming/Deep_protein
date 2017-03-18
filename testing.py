@@ -15,9 +15,9 @@ def run_once(session, model, data_set):
     accuracy = 0
     count = 0
     while True:
-        b_data, b_label, _, is_end = data_set.next_batch(FLAGS.batch_size)
+        b_data, b_label, b_len, is_end = data_set.next_batch(FLAGS.batch_size)
         count += len(b_data)
-        fd = model.get_fed_dict(input_data=b_data, input_label=b_label)
+        fd = model.get_fed_dict(input_data=b_data, input_label=b_label, input_len=b_len)
         val_dict = session.run(model.fetches, feed_dict=fd)
         accuracy += val_dict["evaluation"] * len(b_data)
         print(val_dict["evaluation"])

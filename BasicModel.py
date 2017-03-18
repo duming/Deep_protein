@@ -33,7 +33,7 @@ class NetConfig(object):
 
         # rnn part
         self.unit_num = 50
-        self.rnn_layer_num = 1
+        self.rnn_layer_num = 2
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
 
@@ -99,8 +99,11 @@ class Model(object):
         # use for feed dict input
         self.batch_data_pl = None
         self.batch_label_pl = None
+        self.seq_lens_pl = None
 
         self.global_step = None
+        # sequence lengths for all examples in one batch
+        self.seq_lens = None
         # split input
         self.seq_features = self.profile = None
         self.labels_ss = self.labels_sa = None
@@ -118,7 +121,7 @@ class Model(object):
         self.summary_loss = None
         self.summary_accuracy = None
 
-    def get_fed_dict(self, file_list=None, input_data=None, input_label=None):
+    def get_fed_dict(self, file_list=None, input_data=None, input_label=None, input_len=None):
         """
         return the feed dict for run the graph
         :param file_list:
@@ -131,7 +134,8 @@ class Model(object):
             # using preload data and feed the data and labels
             fd = {
                 self.batch_data_pl: input_data,
-                self.batch_label_pl: input_label
+                self.batch_label_pl: input_label,
+                self.seq_lens_pl: input_len
             }
         else:
             fd = None
@@ -141,7 +145,7 @@ class Model(object):
         self.build_input()
         if self.mode == "train":
             self.build_inference(self.seq_features, self.profile, is_reuse=False)
-            self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
+            self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa, self.seq_lens)
             self.train_op = self.build_train_op(self.loss, self.global_step)
             self.build_moving_average()
             self.build_accuracy(self.logits_ss, self.labels_ss)
@@ -159,7 +163,7 @@ class Model(object):
                 self.build_inference(self.seq_features, self.profile, is_reuse=True)
             else:
                 self.build_inference(self.seq_features, self.profile, is_reuse=False)
-            self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa)
+            self.loss = self.build_loss(self.logits_ss, self.logits_sa, self.labels_ss, self.labels_sa, self.seq_lens)
             # build moving average only for restore
             if self.mode == "test":
                 self.build_moving_average()
@@ -199,10 +203,13 @@ class Model(object):
                                    shape=[None, net_config.seq_len, net_config.label_size],
                                    name="input_label_pl")
 
+                batch_lengths = self.seq_lens_pl = \
+                    tf.placeholder(dtype=tf.int32, shape=[None], name="lengths_placeholder")
             self.global_step = tf.contrib.framework.get_or_create_global_step()
             # split input
             self.seq_features, self.profile = self.split_features(batch_data)
             self.labels_ss, self.labels_sa = self.split_labels(batch_label)
+            self.seq_lens = batch_lengths
 
     @staticmethod
     def _read_parse_records(filename_queue):
@@ -214,7 +221,7 @@ class Model(object):
             features={
                 'label': tf.FixedLenFeature([DATA_SEQUENCE_LEN * 12], tf.int64),
                 'data': tf.FixedLenFeature([DATA_SEQUENCE_LEN * 42], tf.float32),
-                'length': tf.FixedLenFeature([1], tf.int64)
+                'length': tf.FixedLenFeature(1, tf.int64)
             })
         data = tf.reshape(tf.cast(features['data'], tf.float32), [DATA_SEQUENCE_LEN, -1])
         label = tf.reshape(tf.cast(features['label'], tf.int32), [DATA_SEQUENCE_LEN, -1])
@@ -231,6 +238,7 @@ class Model(object):
                                                        batch_size=batch_size,
                                                        capacity=128,
                                                        )
+            b_length = tf.reshape(b_length, [-1])
             self.filename_queue = filename_queue
         return b_data, b_label, b_length
 
@@ -275,7 +283,7 @@ class Model(object):
         else:
             return cell
 
-    def build_rnn_layers(self, inputs):
+    def build_rnn_layers(self, inputs, seq_len):
         with tf.variable_scope("rnn", initializer=self.weight_initializer):
             # convert tensor to list of tensors for rnn
             _inputs = tf.unstack(inputs, axis=1, name="unstack_for_rnn")
@@ -285,6 +293,7 @@ class Model(object):
                     f_cell = self.get_rnn_cell()
                     b_cell = self.get_rnn_cell()
                     _inputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(f_cell, b_cell, _inputs,
+                                                                            sequence_length=seq_len,
                                                                             dtype=tf.float32,
                                                                             scope="bidirectional_rnn_%d" % i
                                                                             )
@@ -348,7 +357,7 @@ class Model(object):
 
             # rnn part
             if net_config.is_rnn:
-                rnn_output = self.build_rnn_layers(concat_conv)
+                rnn_output = self.build_rnn_layers(concat_conv, self.seq_lens)
                 _activation_summary(rnn_output)
                 fc_input = rnn_output
             else:
@@ -384,14 +393,18 @@ class Model(object):
     ###################################################
     # Training loss part
     ###################################################
-    def build_loss(self, logits_ss, logits_sa, labels_ss, labels_sa):
+    def build_loss(self, logits_ss, logits_sa, labels_ss, labels_sa, seq_len):
         with tf.variable_scope("loss_operator"):
             # calculate the losses separately
             entropy_ss = tf.nn.softmax_cross_entropy_with_logits(labels=labels_ss, logits=logits_ss, name="entropy_ss")
             entropy_sa = tf.nn.softmax_cross_entropy_with_logits(labels=labels_sa, logits=logits_sa, name="entropy_sa")
+            # for variable length input there should have a mask operation that zero out all output after sequence
+            # length for each example, however here I skip this. Since all the labels after are already set to zero, and
+            # the cross entropy should be zero when the label is zero
+            total_len = tf.cast(tf.reduce_sum(seq_len), tf.float32)
             # add regularization
             reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            loss = tf.reduce_mean(entropy_ss) + tf.reduce_mean(entropy_sa) + tf.add_n(reg_losses)
+            loss = tf.reduce_sum(entropy_ss) / total_len + tf.reduce_mean(entropy_sa) / total_len + tf.add_n(reg_losses)
             tf.summary.scalar("loss", loss)
         self.loss = loss
         return loss
