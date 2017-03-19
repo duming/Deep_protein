@@ -9,6 +9,7 @@ from data_process import *
 class NetConfig(object):
     def __init__(self):
         self.is_rnn = True
+        self.is_dynamic_rnn = True
         # regularization coefficient
         self.regu_coef = 0.001
         self.seq_len = 700
@@ -32,7 +33,7 @@ class NetConfig(object):
         self.kernel3 = [11, self.embed_size + self.in_second_size, 64]
 
         # rnn part
-        self.unit_num = 50
+        self.unit_num = 128
         self.rnn_layer_num = 1
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
@@ -284,12 +285,18 @@ class Model(object):
             return cell
 
     def build_rnn_layers(self, inputs, seq_len):
+        """
+        build the fully unrolled static rnn layer
+        :param inputs:
+        :param seq_len:
+        :return:
+        """
         with tf.variable_scope("rnn", initializer=self.weight_initializer):
             # convert tensor to list of tensors for rnn
             _inputs = tf.unstack(inputs, axis=1, name="unstack_for_rnn")
             # construct multilayer rnn
             for i in range(net_config.rnn_layer_num):
-               with tf.name_scope("layer_%d"%i):
+                with tf.name_scope("layer_%d"%i):
                     f_cell = self.get_rnn_cell()
                     b_cell = self.get_rnn_cell()
                     _inputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(f_cell, b_cell, _inputs,
@@ -299,6 +306,33 @@ class Model(object):
                                                                             )
             # convert the output of rnn back to tensor
             _rnn_output = tf.stack(_inputs, axis=1, name="stack_after_rnn")
+            # concatenate the input of the first layer to the output of the last layer
+            output = tf.concat([inputs, _rnn_output], axis=2, name="concat_input_output")
+        self.rnn_output = output
+        return output
+
+    def build_dynamic_rnn_layers(self, inputs, seq_len):
+        """
+        build dynamic rnn layer
+        :param inputs:
+        :param seq_len:
+        :return:
+        """
+        with tf.variable_scope("dynamic_rnn", initializer=self.weight_initializer):
+            # construct multilayer rnn
+            _inputs = inputs
+            for i in range(net_config.rnn_layer_num):
+                with tf.name_scope("layer_%d"%i):
+                    f_cell = self.get_rnn_cell()
+                    b_cell = self.get_rnn_cell()
+                    _outputs, _ = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
+                                                                  sequence_length=seq_len,
+                                                                  dtype=tf.float32,
+                                                                  scope="bidirectional_rnn_%d" % i
+                                                                  )
+                    # concatenate forward and backward tensor
+                    _inputs = tf.concat(_outputs, axis=2)
+            _rnn_output = _inputs
             # concatenate the input of the first layer to the output of the last layer
             output = tf.concat([inputs, _rnn_output], axis=2, name="concat_input_output")
         self.rnn_output = output
@@ -357,7 +391,10 @@ class Model(object):
 
             # rnn part
             if net_config.is_rnn:
-                rnn_output = self.build_rnn_layers(concat_conv, self.seq_lens)
+                if net_config.is_dynamic_rnn:
+                    rnn_output = self.build_dynamic_rnn_layers(concat_conv, self.seq_lens)
+                else:
+                    rnn_output = self.build_rnn_layers(concat_conv, self.seq_lens)
                 _activation_summary(rnn_output)
                 fc_input = rnn_output
             else:
