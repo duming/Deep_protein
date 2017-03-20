@@ -22,7 +22,7 @@ tf.app.flags.DEFINE_integer('epoch_num', 10000,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-tf.app.flags.DEFINE_integer("batch_size", 128,
+tf.app.flags.DEFINE_integer("batch_size", 160,
                             "number of batches")
 
 

@@ -91,7 +91,8 @@ class Model(object):
         assert mode in ["train", "test", "valid", "inference"]
         if mode == "train":
             self.epoch_num = config.epoch_num
-        self.weight_initializer = tf.contrib.layers.xavier_initializer()
+        #self.weight_initializer = tf.contrib.layers.xavier_initializer()
+        self.weight_initializer = tf.contrib.layers.variance_scaling_initializer()
         self.bias_initializer = tf.zeros_initializer()
 
         self.batch_size = config.batch_size
@@ -448,7 +449,7 @@ class Model(object):
 
     def build_train_op(self, loss, global_step):
         with tf.variable_scope("objective_funciton"):
-            opt = tf.train.AdadeltaOptimizer(learning_rate=1).minimize(loss, global_step=global_step)
+            opt = tf.train.AdadeltaOptimizer(learning_rate=0.8).minimize(loss, global_step=global_step)
             tf.summary.scalar('global_step', global_step)
         self.train_op = opt
         return opt
