@@ -43,7 +43,7 @@ class NetConfig(object):
 
         # fully connected
         if self.is_rnn:
-            self.fc1 = [self.rnn_output_size, self.rnn_output_size]
+            self.fc1 = [self.rnn_output_size, int(self.rnn_output_size / 2)]
             self.fc2 = [self.fc1[-1], self.label_size]
         else:
             self.fc1 = [self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1],
@@ -91,6 +91,9 @@ class Model(object):
         assert mode in ["train", "test", "valid", "inference"]
         if mode == "train":
             self.epoch_num = config.epoch_num
+            self.is_training = True
+        else:
+            self.is_training = False
         #self.weight_initializer = tf.contrib.layers.xavier_initializer()
         self.weight_initializer = tf.contrib.layers.variance_scaling_initializer()
         self.bias_initializer = tf.zeros_initializer()
@@ -271,11 +274,9 @@ class Model(object):
                                              axis=2, name="split_features")
         return seq_features, profile
 
-
-
-    #################################################
-    # Main model part
-    #################################################
+    ####################################
+    # rnn ops
+    ####################################
     def get_rnn_cell(self):
         cell = tf.contrib.rnn.GRUCell(net_config.unit_num)
 
@@ -339,6 +340,10 @@ class Model(object):
         self.rnn_output = output
         return output
 
+    #################################################
+    # Main model part
+    #################################################
+
     def build_inference(self, seq_features, profile, is_reuse=False):
         with tf.variable_scope("Model", reuse=is_reuse, initializer=self.weight_initializer):
             with tf.variable_scope("preprocess"):
@@ -365,7 +370,7 @@ class Model(object):
                 bias1 = tf.get_variable("bias1", net_config.kernel1[-1], dtype=tf.float32,
                                         initializer=self.bias_initializer)
                 z1 = tf.nn.conv1d(preprocessed_feature, kernel1, stride=1, padding="SAME", name="conv1")
-                conv1 = tf.nn.relu(z1 + bias1, "relu1")
+                conv1 = z1 + bias1
 
                 # convolution with kernel 2
                 kernel2 = _get_variable_with_regularization("kernel2",
@@ -375,7 +380,7 @@ class Model(object):
                 bias2 = tf.get_variable("bias2", net_config.kernel2[-1], dtype=tf.float32,
                                         initializer=self.bias_initializer)
                 z2 = tf.nn.conv1d(preprocessed_feature, kernel2, stride=1, padding="SAME", name="conv2")
-                conv2 = tf.nn.relu(z2 + bias2, "relu2")
+                conv2 = z2 + bias2
 
                 # convolution with kernel3
                 kernel3 = _get_variable_with_regularization("kernel3",
@@ -385,9 +390,12 @@ class Model(object):
                 bias3 = tf.get_variable("bias3", net_config.kernel1[-1], dtype=tf.float32,
                                         initializer=self.bias_initializer)
                 z3 = tf.nn.conv1d(preprocessed_feature, kernel3, stride=1, padding="SAME", name="conv3")
-                conv3 = tf.nn.relu(z3 + bias3, "relu3")
+                conv3 = z3 + bias3
 
                 concat_conv = tf.concat([conv1, conv2, conv3], axis=2)
+                conv_relu = tf.nn.relu(concat_conv, name="relu")
+                concat_conv = tf.contrib.layers.batch_norm(conv_relu, center=True, scale=True, decay=0.9,
+                                                           is_training=self.is_training, scope="batch_norm")
                 _activation_summary(concat_conv)
 
             # rnn part
@@ -396,6 +404,8 @@ class Model(object):
                     rnn_output = self.build_dynamic_rnn_layers(concat_conv, self.seq_lens)
                 else:
                     rnn_output = self.build_rnn_layers(concat_conv, self.seq_lens)
+                rnn_output = tf.contrib.layers.batch_norm(rnn_output, center=True, scale=True, decay=0.9,
+                                                          is_training=self.is_training, scope="rnn_batch_norm")
                 _activation_summary(rnn_output)
                 fc_input = rnn_output
             else:
@@ -404,21 +414,24 @@ class Model(object):
             with tf.variable_scope("fully_connected1"):
                 weight = _get_variable_with_regularization("weight",
                                                            net_config.fc1)
-                                                           #tf.truncated_normal_initializer(stddev=0.5))
                 bias = tf.get_variable("bias", net_config.fc1[-1], dtype=tf.float32,
                                        initializer=self.bias_initializer)
 
                 flat_conv = tf.reshape(fc_input, [-1, net_config.fc1[0]])
-                hidden1 = tf.nn.relu(tf.matmul(flat_conv, weight) + bias, name="hidden")
+                z1 = tf.matmul(flat_conv, weight) + bias
+                #norm_z1 = tf.contrib.layers.batch_norm(z1, center=True, scale=True,
+                #                                      is_training=self.is_training)
+                hidden1 = tf.nn.relu(z1, name="hidden")
 
             with tf.variable_scope("fully_connected2"):
                 weight = _get_variable_with_regularization("weight",
                                                            net_config.fc2)
-                                                           #tf.truncated_normal_initializer(stddev=0.5))
                 bias = tf.get_variable("bias", net_config.fc2[-1], dtype=tf.float32,
                                        initializer=self.bias_initializer)
-
-                logits = tf.nn.relu(tf.matmul(hidden1, weight) + bias, name="logits")
+                z2 = tf.matmul(hidden1, weight) + bias
+                #norm_z2 = tf.contrib.layers.batch_norm(z2, center=True, scale=True,
+                #                                       is_training=self.is_training)
+                logits = tf.nn.relu(z2, name="logits")
 
                 logits_ss, logits_sa = tf.split(logits,
                                                 [net_config.label_first_size, net_config.label_second_size],
@@ -449,7 +462,7 @@ class Model(object):
 
     def build_train_op(self, loss, global_step):
         with tf.variable_scope("objective_funciton"):
-            opt = tf.train.AdadeltaOptimizer(learning_rate=0.8).minimize(loss, global_step=global_step)
+            opt = tf.train.AdadeltaOptimizer(learning_rate=1).minimize(loss, global_step=global_step)
             tf.summary.scalar('global_step', global_step)
         self.train_op = opt
         return opt
@@ -505,8 +518,10 @@ class Model(object):
         maintain_averages_op = ema.apply(var_list=var_list)
         self.moving_average_maintainer = ema
         if self.mode == "train":
-            with tf.control_dependencies([self.train_op]):
-                _train_op = tf.group(maintain_averages_op)
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_ops):
+                with tf.control_dependencies([self.train_op]):
+                    _train_op = tf.group(maintain_averages_op)
 
             self.moving_average_train_op = _train_op
             return _train_op

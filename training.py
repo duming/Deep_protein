@@ -22,7 +22,7 @@ tf.app.flags.DEFINE_integer('epoch_num', 10000,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-tf.app.flags.DEFINE_integer("batch_size", 160,
+tf.app.flags.DEFINE_integer("batch_size", 128,
                             "number of batches")
 
 
@@ -78,7 +78,7 @@ def main():
     valid_data = pkl.load(fh)
     fh.close()
     valid_dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
-    early_stop = EarlyStop(20)
+    early_stop = EarlyStop(30)
     gf = tf.Graph()
     with gf.as_default():
         train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
@@ -99,7 +99,7 @@ def main():
                 if iter % 100 == 0:
                     # validation
                     valid_precision, count, valid_ret = run_once(sess, valid_model, valid_dataset)
-                    print(valid_precision, count)
+                    print(valid_precision, count, early_stop.step_from_best)
 
                     should_stop, should_save = early_stop.should_stop_update(valid_precision)
                     if should_save:
