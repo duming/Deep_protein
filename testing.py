@@ -31,15 +31,23 @@ def evaluate():
 
     test_data_name = '/home/dm/data_sets/cb513+profile_split1.npy'
     data, label, length = read_data_from_example(test_data_name)
-    dataset = DataSet(data, label, length)
+    test_dataset = DataSet(data, label, length)
 
-    '''
+
     valid_file = '/home/dm/data_sets/cullpdb+profile_6133_filtered_valid.pkl'
     fh = open(valid_file, "rb")
     valid_data = pkl.load(fh)
     fh.close()
-    dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
-    '''
+    valid_dataset = DataSet(valid_data[0], valid_data[1], valid_data[2])
+
+    """
+    train_file = '/home/dm/data_sets/cullpdb+profile_6133_filtered_train.pkl'
+    fh = open(train_file, "rb")
+    train_data = pkl.load(fh)
+    fh.close()
+    train_dataset = DataSet(train_data[0], train_data[1], train_data[2])
+    """
+
 
     gf = tf.Graph()
     with gf.as_default():
@@ -57,8 +65,19 @@ def evaluate():
         if ckpt and ckpt.model_checkpoint_path:
             # Restores from checkpoint
             saver.restore(session, ckpt.model_checkpoint_path)
-            acc, count, ret = run_once(session, test_model, dataset)
+            print("test:")
+            acc, count, ret = run_once(session, test_model, test_dataset)
             print(acc, count)
+
+            print("valid:")
+            acc, count, ret = run_once(session, test_model, valid_dataset)
+            print(acc, count)
+
+            """
+            print("train:")
+            acc, count, ret = run_once(session, test_model, train_dataset)
+            print(acc, count)
+            """
 
 if __name__ == "__main__":
     tf.app.flags.DEFINE_integer("batch_size", 64,

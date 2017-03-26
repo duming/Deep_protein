@@ -139,7 +139,7 @@ def test_accuracy_op():
 data6133_filtered = "/home/dm/data_sets/cullpdb+profile_6133_filtered.npy"
 data6133_filtered_record = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
 #covert_ICML2014_to_record(data6133_filtered)
-#split_and_convert(data6133_filtered)
+split_and_convert(data6133_filtered)
 #read_record_file_for_test(data6133_filtered_record)
 
 """
@@ -191,9 +191,9 @@ convert_ICML2014_to_record(data_513, n_name)
 """
 
 
-es = EarlyStop(3)
-updates = list(np.linspace(1, 4, 10)) + [4, 4, 5, 0, 0, 2, 2]
+#es = EarlyStop(3)
+#updates = list(np.linspace(1, 4, 10)) + [4, 4, 5, 0, 0, 2, 2]
 
-for i in updates:
-    up = es.should_stop_update(i)
-    print(i, up)
+#for i in updates:
+#    up = es.should_stop_update(i)
+#    print(i, up)

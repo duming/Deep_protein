@@ -5,6 +5,7 @@ import matplotlib.ticker as ticker
 from os import listdir
 from os.path import isfile, join
 import scipy.signal
+import re
 print(scipy.__version__)
 x1 = np.linspace(0, 20, 20)
 x2 = np.linspace(1, 21, 20)
@@ -125,17 +126,38 @@ def load_dir_to_list(dir):
     files = [f for f in listdir(dir) if isfile(join(dir, f)) and f.endswith(".csv")]
     ret_list = []
     for f in files:
+
         record = read_record(join(dir, f))
         smoothing_record(record)
         add_to_list(ret_list, record, f.split('.')[0], color=None)
     return ret_list
 
 
-def plot_multi_line(line_list, title):
+def plot_multi_line(line_list, title, x_lim=None, y_lim=None):
     figure = plt.figure()
     assert line_list != []
+    name_list = []
     for line in line_list:
-        plt.plot(line["Step"], line["Value"], linewidth=1.5, label=line["Name"])
+        f = line["Name"]
+        if f.find("train") != -1:
+            line["line_style"] = '-'
+            name_list.append(re.sub("train", '', f))
+            line["raw_name"] = name_list[-1]
+        elif f.find("valid") != -1:
+            line["line_style"] = '--'
+            name_list.append(re.sub("valid", '', f))
+            line["raw_name"] = name_list[-1]
+        else:
+            line["line_style"] = '-.'
+            name_list.append(f)
+            line["raw_name"] = name_list[-1]
+    name_list = list(set(name_list))
+    cmap = plt.get_cmap('rainbow')
+    colors = cmap(np.linspace(0, 1, len(name_list)))
+    color_dict = dict(zip(name_list, colors))
+    for line in line_list:
+        color = color_dict[line["raw_name"]]
+        plt.plot(line["Step"], line["Value"], linewidth=1.8, label=line["Name"], linestyle=line["line_style"], c=color)
 
     axes = figure.get_axes()
     ax = axes[0]
@@ -149,16 +171,22 @@ def plot_multi_line(line_list, title):
     plt.ylabel("value")
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.title(title)
+    if x_lim is not None:
+        plt.xlim(x_lim)
+    if y_lim is not None:
+        plt.ylim(y_lim)
     plt.show()
 
-line_list = load_dir_to_list("/home/dm/Desktop/result_csv/train/acc/")
-plot_multi_line(line_list, "Training Accuracy")
+#line_list = load_dir_to_list("/home/dm/Desktop/result_csv/variable_length/acc")
+#plot_multi_line(line_list, "Accuracy", y_lim=(0.58, 0.76))
 
-line_list = load_dir_to_list("/home/dm/Desktop/result_csv/train/loss/")
-plot_multi_line(line_list, "Training Loss")
 
+line_list = load_dir_to_list("/home/dm/Desktop/result_csv/variable_length/loss")
+plot_multi_line(line_list, " Loss", y_lim=(0.7, 1.5))
+"""
 line_list = load_dir_to_list("/home/dm/Desktop/result_csv/valid/acc/")
 plot_multi_line(line_list, "valid Accuracy")
 
 line_list = load_dir_to_list("/home/dm/Desktop/result_csv/valid/loss/")
 plot_multi_line(line_list, "valid loss")
+"""

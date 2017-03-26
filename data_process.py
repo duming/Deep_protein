@@ -8,7 +8,7 @@ DATA_SEQUENCE_LEN = 700
 
 def split_and_convert(file_name):
     data = read_data_from_example(file_name)
-    train_data, valid_data, _ = get_train_valid_test(data, [0.85, 0.15, 0])
+    train_data, valid_data, _ = get_train_valid_test(data, [0.95, 0.05, 0])
     record_prefix = os.path.splitext(file_name)[0]
 
     # save training data

@@ -34,7 +34,7 @@ class NetConfig(object):
 
         # rnn part
         self.unit_num = 128
-        self.rnn_layer_num = 1
+        self.rnn_layer_num = 2
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
 
@@ -419,9 +419,9 @@ class Model(object):
 
                 flat_conv = tf.reshape(fc_input, [-1, net_config.fc1[0]])
                 z1 = tf.matmul(flat_conv, weight) + bias
-                #norm_z1 = tf.contrib.layers.batch_norm(z1, center=True, scale=True,
-                #                                      is_training=self.is_training)
-                hidden1 = tf.nn.relu(z1, name="hidden")
+                norm_z1 = tf.contrib.layers.batch_norm(z1, center=True, scale=True,
+                                                      is_training=self.is_training)
+                hidden1 = tf.nn.relu(norm_z1, name="hidden")
 
             with tf.variable_scope("fully_connected2"):
                 weight = _get_variable_with_regularization("weight",
