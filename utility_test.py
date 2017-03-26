@@ -6,6 +6,7 @@ from sklearn import preprocessing, metrics
 import tensorflow as tf
 from BasicModel import *
 import os
+from training import EarlyStop
 
 cf_CB513 = np.asarray(
     [[11679, 9, 2888, 216, 0, 974, 987, 1167],
@@ -188,3 +189,11 @@ data_513 = read_data_from_example(f_name)
 n_name = os.path.splitext(f_name)[0] + ".tfrecords"
 convert_ICML2014_to_record(data_513, n_name)
 """
+
+
+#es = EarlyStop(3)
+#updates = list(np.linspace(1, 4, 10)) + [4, 4, 5, 0, 0, 2, 2]
+
+#for i in updates:
+#    up = es.should_stop_update(i)
+#    print(i, up)
