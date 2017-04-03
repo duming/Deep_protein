@@ -471,7 +471,6 @@ class Model(object):
     # test
     ##########################
 
-
     def build_accuracy(self, logits_ss, one_hot_labels, input_length=None):
         """
         calculate the q_8 (8 classes accuracy) not the "Q8" accuracy for 3 classes
