@@ -7,6 +7,7 @@ from tensorflow.contrib.seq2seq.python.ops import helper as helper_py
 from tensorflow.contrib.seq2seq.python.ops import basic_decoder
 from tensorflow.python.framework import dtypes
 from tensorflow.python.layers import core as layers_core
+from tensorflow.contrib.seq2seq.python.ops.loss import sequence_loss
 
 
 class Seq2seq_net_config(object):
@@ -47,8 +48,10 @@ class Seq2seq_net_config(object):
         self.is_predict_sa = False
         if self.is_predict_sa is True:
             self.output_size = 8
+            self.sa_loss_ratio = 0
         else:
             self.output_size = 12
+            self.sa_loss_ratio = 0.1
 
         # moving average
         self.decay_rate = 0.999
@@ -159,14 +162,50 @@ class Seq2seqModel(Model):
                 _decoder, output_time_major=False,
                 maximum_iterations=batch_max_len)
             self.decoder_output = final_outputs[0]
-
+            return self.decoder_output
 
 
     def build_inference(self, seq_features, profile, is_reuse=False):
-        self.build_embedding(seq_features, profile)
-        self.build_convolution(self.conv_output)
+        embed_output = self.build_embedding(seq_features, profile)
+        conv_output = self.build_convolution(embed_output)
+        encoder_output = self.build_encoder(conv_output, self.seq_lens)
+        decoder_output = self.build_decoder(encoder_output, self.seq_lens)
 
+        logits = decoder_output
+        if self.net_config.is_predict_sa:
+            logits_ss, logits_sa = tf.split(logits,
+                                            [self.net_config.label_first_size, self.net_config.label_second_size],
+                                            axis=1, name="split_logits")
+        else:
+            logits_ss = logits
+            logits_sa = None
+        self.logits_ss = logits_ss
+        self.logits_sa = logits_sa
+
+        return logits_ss, logits_sa
 
     def build_loss(self, logits_ss, logits_sa, labels_ss, labels_sa, seq_len):
-        pass
+        with tf.variable_scope("loss_operator"):
+            #TODO cut labels to the same size of logits
+            #TODO prepare weights
+            weights = None
+            loss_ss = sequence_loss(
+                logits_ss, labels_ss, weights,
+                average_across_timesteps=True,
+                average_across_batch=True)
+
+            # add regularization
+            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            loss = loss_ss + tf.add_n(reg_losses)
+            if self.net_config.is_predict_sa:
+                loss_sa = sequence_loss(
+                    logits_sa, labels_sa, weights,
+                    average_across_timesteps=True,
+                    average_across_batch=True)
+                loss_sa *= self.net_config.sa_loss_ratio
+                loss += loss_sa
+
+            tf.summary.scalar("loss", loss)
+        self.loss = loss
+        return loss
 
