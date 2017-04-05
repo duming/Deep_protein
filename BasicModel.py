@@ -459,7 +459,7 @@ class Model(object):
             total_len = tf.cast(tf.reduce_sum(seq_len), tf.float32)
             # add regularization
             reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            loss = tf.reduce_sum(entropy_ss) / total_len + tf.reduce_mean(entropy_sa) / total_len + tf.add_n(reg_losses)
+            loss = tf.reduce_sum(entropy_ss) / total_len + 0.001 * tf.reduce_mean(entropy_sa) / total_len + tf.add_n(reg_losses)
             tf.summary.scalar("loss", loss)
         self.loss = loss
         return loss

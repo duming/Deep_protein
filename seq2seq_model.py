@@ -64,6 +64,7 @@ class Seq2seqModel(Model):
         self.embed_output = None
         self.conv_output = None
         self.encoder_output = None
+        self.encoder_final_state = None
         self.decoder_output = None
 
     def build_embedding(self, seq_features, profile):
@@ -127,21 +128,25 @@ class Seq2seqModel(Model):
             _inputs = features
             f_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
             b_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
-            _outputs, _ = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
+            _outputs, _states = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
                                                           sequence_length=seq_len,
                                                           dtype=tf.float32,
                                                           )
             # concatenate forward and backward tensor
             _rnn_output = tf.concat(_outputs, axis=2)
+            _rnn_final_state = tf.concat(_states, axis=-1)
         self.encoder_output = _rnn_output
-        return _rnn_output
+        self.encoder_final_state = _rnn_final_state
+        return _rnn_output, _rnn_final_state
 
-    def build_decoder(self, encoder_output, seq_len):
+    def build_decoder(self, encoder_output, encoder_final_state, target, seq_len):
         with tf.variable_scope("rnn_decoder", initializer=self.weight_initializer):
             # prepare helper
             if self.is_training:
-                # TODO add "GO" signal before input
-                helper = helper_py.TrainingHelper(encoder_output, seq_len)
+                # TODO add "GO" signal before decoder input
+                # the decoder input should be the targets(labels)
+                _decoder_input = target
+                helper = helper_py.TrainingHelper(_decoder_input, seq_len)
             else:
                 # TODO prepare embed matrix, start_token, end_token
                 embed_mat = None
@@ -149,7 +154,7 @@ class Seq2seqModel(Model):
                 end_token = None
                 helper = helper_py.GreedyEmbeddingHelper(embed_mat, start_tokens, end_token)
 
-            cell = self.get_rnn_cell()
+            cell = self.get_rnn_cell(self.net_config.decoder_hidden_num)
             _decoder = basic_decoder.BasicDecoder(
                 cell=cell,
                 helper=helper,
@@ -168,8 +173,8 @@ class Seq2seqModel(Model):
     def build_inference(self, seq_features, profile, is_reuse=False):
         embed_output = self.build_embedding(seq_features, profile)
         conv_output = self.build_convolution(embed_output)
-        encoder_output = self.build_encoder(conv_output, self.seq_lens)
-        decoder_output = self.build_decoder(encoder_output, self.seq_lens)
+        encoder_output, encoder_final_state = self.build_encoder(conv_output, self.seq_lens)
+        decoder_output = self.build_decoder(encoder_output, encoder_final_state, self.seq_lens)
 
         logits = decoder_output
         if self.net_config.is_predict_sa:

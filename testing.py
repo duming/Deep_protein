@@ -82,6 +82,6 @@ def evaluate():
 if __name__ == "__main__":
     tf.app.flags.DEFINE_integer("batch_size", 64,
                                 "number of batches")
-    tf.app.flags.DEFINE_integer("using_moving_average", True,
+    tf.app.flags.DEFINE_integer("using_moving_average", False,
                                 "whether store from moving averages ")
     evaluate()
