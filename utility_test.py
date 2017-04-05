@@ -45,9 +45,9 @@ cf_casp11 = np.asarray(
 print(cf_CB513)
 print(cf_CB513.sum())
 
-_, _, lengths = read_data_from_example("/home/dm/data_sets/cb513+profile_split1.npy")
+#_, _, lengths = read_data_from_example("/home/dm/data_sets/cb513+profile_split1.npy")
 
-print(sum(lengths))
+#print(sum(lengths))
 
 label_dict_8 = dict(enumerate(['L', 'B', 'E', 'G', 'I', 'H', 'S', 'T', 'NoSeq']))
 # H=HGI, E=EB, C=STC
@@ -198,3 +198,26 @@ convert_ICML2014_to_record(data_513, n_name)
 #    up = es.should_stop_update(i)
 #    print(i, up)
 print(tf.__version__)
+
+def test_something():
+    graph = tf.Graph()
+    file_name = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
+    with graph.as_default():
+        input_pl = tf.placeholder(tf.float32, (3,))
+        _input = tf.convert_to_tensor(input_pl)
+        init_op = tf.group(tf.global_variables_initializer(),
+                       tf.local_variables_initializer())
+
+    # Create a session for running operations in the Graph.
+    with tf.Session(graph=graph) as session:
+
+        # Initialize the variables (the trained variables and the
+        # epoch counter).
+        session.run(init_op)
+        for i in range(10):
+            value = np.asarray([i]*3, dtype=np.float32)
+            fd = {input_pl: value}
+            ret = session.run(_input, feed_dict=fd)
+            print(ret)
+
+test_something()

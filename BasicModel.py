@@ -281,8 +281,8 @@ class Model(object):
     ####################################
     # rnn ops
     ####################################
-    def get_rnn_cell(self, cell_name=None, layer=1, is_dropout=False):
-        cell = tf.contrib.rnn.GRUCell(self.net_config.unit_num)
+    def get_rnn_cell(self, cell_name=None, hidden_units=32, layer=1, is_dropout=False):
+        cell = tf.contrib.rnn.GRUCell(hidden_units)
 
         if is_dropout and self.mode == "train":
             # apply dropout while training
@@ -306,8 +306,8 @@ class Model(object):
             # construct multilayer rnn
             for i in range(self.net_config.rnn_layer_num):
                 with tf.name_scope("layer_%d"%i):
-                    f_cell = self.get_rnn_cell(is_dropout=True)
-                    b_cell = self.get_rnn_cell(is_dropout=True)
+                    f_cell = self.get_rnn_cell(hidden_units=self.net_config.unit_num, is_dropout=True)
+                    b_cell = self.get_rnn_cell(hidden_units=self.net_config.unit_num, is_dropout=True)
                     _inputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(f_cell, b_cell, _inputs,
                                                                             sequence_length=seq_len,
                                                                             dtype=tf.float32,
@@ -332,8 +332,8 @@ class Model(object):
             _inputs = inputs
             for i in range(self.net_config.rnn_layer_num):
                 with tf.name_scope("layer_%d"%i):
-                    f_cell = self.get_rnn_cell()
-                    b_cell = self.get_rnn_cell()
+                    f_cell = self.get_rnn_cell(hidden_units=self.net_config.unit_num, is_dropout=True)
+                    b_cell = self.get_rnn_cell(hidden_units=self.net_config.unit_num, is_dropout=True)
                     _outputs, _ = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
                                                                   sequence_length=seq_len,
                                                                   dtype=tf.float32,
