@@ -51,7 +51,7 @@ class NetConfig(object):
             self.fc2 = [self.fc1[-1], self.label_size]
 
 
-net_config = NetConfig()
+basic_net_config = NetConfig()
 
 
 def _activation_summary(x):
@@ -72,28 +72,21 @@ def _activation_summary(x):
                                     tf.nn.zero_fraction(x))
 
 
-def _get_variable_with_regularization(name, shape, initializer=None, reg_w=net_config.regu_coef):
-    var = tf.get_variable(
-        name,
-        shape,
-        dtype=tf.float32,
-        initializer=initializer,
-        regularizer=tf.contrib.layers.l2_regularizer(reg_w)
-    )
-    return var
+
 
 
 ###########################
 # model
 ###########################
 class Model(object):
-    def __init__(self, config, mode, input_file_list=None):
+    def __init__(self, config, mode, input_file_list=None, net_config=basic_net_config):
         assert mode in ["train", "test", "valid", "inference"]
         if mode == "train":
             self.epoch_num = config.epoch_num
             self.is_training = True
         else:
             self.is_training = False
+        self.net_config = net_config
         #self.weight_initializer = tf.contrib.layers.xavier_initializer()
         self.weight_initializer = tf.contrib.layers.variance_scaling_initializer()
         self.bias_initializer = tf.zeros_initializer()
@@ -125,6 +118,16 @@ class Model(object):
         self.rnn_output = None
         self.summary_loss = None
         self.summary_accuracy = None
+
+    def _get_variable_with_regularization(self, name, shape, initializer=None):
+        var = tf.get_variable(
+            name,
+            shape,
+            dtype=tf.float32,
+            initializer=initializer,
+            regularizer=tf.contrib.layers.l2_regularizer(self.net_config.regu_coef)
+        )
+        return var
 
     def get_fed_dict(self, file_list=None, input_data=None, input_label=None, input_len=None):
         """
@@ -201,11 +204,12 @@ class Model(object):
             else:
                 # if is not training use feed dict instead
                 batch_data = self.batch_data_pl = tf.placeholder(dtype=tf.float32,
-                                                                 shape=[None, net_config.seq_len, net_config.in_size],
+                                                                 shape=[None, self.net_config.seq_len,
+                                                                        self.net_config.in_size],
                                                                  name="input_data_pl")
                 batch_label = self.batch_label_pl = \
                     tf.placeholder(dtype=tf.int32,
-                                   shape=[None, net_config.seq_len, net_config.label_size],
+                                   shape=[None, self.net_config.seq_len, self.net_config.label_size],
                                    name="input_label_pl")
 
                 batch_lengths = self.seq_lens_pl = \
@@ -254,9 +258,9 @@ class Model(object):
         :return:
         """
         with tf.variable_scope("split_label"):
-            flat_labels = tf.reshape(labels, [-1, net_config.label_size], name="flat_labels")
+            flat_labels = tf.reshape(labels, [-1, self.net_config.label_size], name="flat_labels")
             labels_ss, labels_sa = tf.split(flat_labels,
-                                            [net_config.label_first_size, net_config.label_second_size],
+                                            [self.net_config.label_first_size, self.net_config.label_second_size],
                                             axis=1, name="split_labels")
 
         return labels_ss, labels_sa
@@ -270,21 +274,24 @@ class Model(object):
         # split input into sequence feature and profile
         with tf.variable_scope("split_input"):
             seq_features, profile = tf.split(features,
-                                             [net_config.in_first_size, net_config.in_second_size],
+                                             [self.net_config.in_first_size, self.net_config.in_second_size],
                                              axis=2, name="split_features")
         return seq_features, profile
 
     ####################################
     # rnn ops
     ####################################
-    def get_rnn_cell(self):
-        cell = tf.contrib.rnn.GRUCell(net_config.unit_num)
+    def get_rnn_cell(self, cell_name=None, layer=1, is_dropout=False):
+        cell = tf.contrib.rnn.GRUCell(self.net_config.unit_num)
 
-        if self.mode == "train":
+        if is_dropout and self.mode == "train":
             # apply dropout while training
-            return tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=net_config.rnn_dropout_prob)
-        else:
-            return cell
+            cell = tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=self.net_config.rnn_dropout_prob)
+
+        if layer > 1:
+            cell = tf.contrib.rnn.MultiRNNCell([cell]*layer)
+
+        return cell
 
     def build_rnn_layers(self, inputs, seq_len):
         """
@@ -297,10 +304,10 @@ class Model(object):
             # convert tensor to list of tensors for rnn
             _inputs = tf.unstack(inputs, axis=1, name="unstack_for_rnn")
             # construct multilayer rnn
-            for i in range(net_config.rnn_layer_num):
+            for i in range(self.net_config.rnn_layer_num):
                 with tf.name_scope("layer_%d"%i):
-                    f_cell = self.get_rnn_cell()
-                    b_cell = self.get_rnn_cell()
+                    f_cell = self.get_rnn_cell(is_dropout=True)
+                    b_cell = self.get_rnn_cell(is_dropout=True)
                     _inputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(f_cell, b_cell, _inputs,
                                                                             sequence_length=seq_len,
                                                                             dtype=tf.float32,
@@ -323,7 +330,7 @@ class Model(object):
         with tf.variable_scope("dynamic_rnn", initializer=self.weight_initializer):
             # construct multilayer rnn
             _inputs = inputs
-            for i in range(net_config.rnn_layer_num):
+            for i in range(self.net_config.rnn_layer_num):
                 with tf.name_scope("layer_%d"%i):
                     f_cell = self.get_rnn_cell()
                     b_cell = self.get_rnn_cell()
@@ -347,14 +354,14 @@ class Model(object):
     def build_inference(self, seq_features, profile, is_reuse=False):
         with tf.variable_scope("Model", reuse=is_reuse, initializer=self.weight_initializer):
             with tf.variable_scope("preprocess"):
-                embed_mat = _get_variable_with_regularization("embed_mat",
-                                                              [net_config.in_first_size, net_config.embed_size]
-                                                              #tf.truncated_normal_initializer(stddev=0.01)
-                                                              )
-                seq_features_flat = tf.reshape(seq_features, [-1, net_config.in_first_size], "flatten")
+                embed_mat = self._get_variable_with_regularization("embed_mat",
+                                                                   [self.net_config.in_first_size,
+                                                                    self.net_config.embed_size]
+                                                                   )
+                seq_features_flat = tf.reshape(seq_features, [-1, self.net_config.in_first_size], "flatten")
                 embed_feature = tf.reshape(
                     tf.matmul(seq_features_flat, embed_mat, a_is_sparse=True, name="flat_embedding"),
-                    [-1, net_config.seq_len, net_config.embed_size],
+                    [-1, self.net_config.seq_len, self.net_config.embed_size],
                     name="embedding"
                 )
 
@@ -363,31 +370,28 @@ class Model(object):
 
             with tf.variable_scope("multiscal_conv"):
                 # convolution with kernel 1
-                kernel1 = _get_variable_with_regularization("kernel1",
-                                                            net_config.kernel1
-                                                            #tf.truncated_normal_initializer(stddev=0.01)
-                                                            )
-                bias1 = tf.get_variable("bias1", net_config.kernel1[-1], dtype=tf.float32,
+                kernel1 = self._get_variable_with_regularization("kernel1",
+                                                                 self.net_config.kernel1
+                                                                 )
+                bias1 = tf.get_variable("bias1", self.net_config.kernel1[-1], dtype=tf.float32,
                                         initializer=self.bias_initializer)
                 z1 = tf.nn.conv1d(preprocessed_feature, kernel1, stride=1, padding="SAME", name="conv1")
                 conv1 = z1 + bias1
 
                 # convolution with kernel 2
-                kernel2 = _get_variable_with_regularization("kernel2",
-                                                            net_config.kernel2
-                                                            #tf.truncated_normal_initializer(stddev=0.01)
-                                                            )
-                bias2 = tf.get_variable("bias2", net_config.kernel2[-1], dtype=tf.float32,
+                kernel2 = self._get_variable_with_regularization("kernel2",
+                                                                 self.net_config.kernel2
+                                                                 )
+                bias2 = tf.get_variable("bias2", self.net_config.kernel2[-1], dtype=tf.float32,
                                         initializer=self.bias_initializer)
                 z2 = tf.nn.conv1d(preprocessed_feature, kernel2, stride=1, padding="SAME", name="conv2")
                 conv2 = z2 + bias2
 
                 # convolution with kernel3
-                kernel3 = _get_variable_with_regularization("kernel3",
-                                                            net_config.kernel3
-                                                            #tf.truncated_normal_initializer(stddev=0.01)
-                                                            )
-                bias3 = tf.get_variable("bias3", net_config.kernel1[-1], dtype=tf.float32,
+                kernel3 = self._get_variable_with_regularization("kernel3",
+                                                                 self.net_config.kernel3
+                                                                 )
+                bias3 = tf.get_variable("bias3", self.net_config.kernel1[-1], dtype=tf.float32,
                                         initializer=self.bias_initializer)
                 z3 = tf.nn.conv1d(preprocessed_feature, kernel3, stride=1, padding="SAME", name="conv3")
                 conv3 = z3 + bias3
@@ -399,8 +403,8 @@ class Model(object):
                 _activation_summary(concat_conv)
 
             # rnn part
-            if net_config.is_rnn:
-                if net_config.is_dynamic_rnn:
+            if self.net_config.is_rnn:
+                if self.net_config.is_dynamic_rnn:
                     rnn_output = self.build_dynamic_rnn_layers(concat_conv, self.seq_lens)
                 else:
                     rnn_output = self.build_rnn_layers(concat_conv, self.seq_lens)
@@ -412,21 +416,21 @@ class Model(object):
                 fc_input = concat_conv
 
             with tf.variable_scope("fully_connected1"):
-                weight = _get_variable_with_regularization("weight",
-                                                           net_config.fc1)
-                bias = tf.get_variable("bias", net_config.fc1[-1], dtype=tf.float32,
+                weight = self._get_variable_with_regularization("weight",
+                                                                self.net_config.fc1)
+                bias = tf.get_variable("bias", self.net_config.fc1[-1], dtype=tf.float32,
                                        initializer=self.bias_initializer)
 
-                flat_conv = tf.reshape(fc_input, [-1, net_config.fc1[0]])
+                flat_conv = tf.reshape(fc_input, [-1, self.net_config.fc1[0]])
                 z1 = tf.matmul(flat_conv, weight) + bias
                 norm_z1 = tf.contrib.layers.batch_norm(z1, center=True, scale=True,
-                                                      is_training=self.is_training)
+                                                       is_training=self.is_training)
                 hidden1 = tf.nn.relu(norm_z1, name="hidden")
 
             with tf.variable_scope("fully_connected2"):
-                weight = _get_variable_with_regularization("weight",
-                                                           net_config.fc2)
-                bias = tf.get_variable("bias", net_config.fc2[-1], dtype=tf.float32,
+                weight = self._get_variable_with_regularization("weight",
+                                                                self.net_config.fc2)
+                bias = tf.get_variable("bias", self.net_config.fc2[-1], dtype=tf.float32,
                                        initializer=self.bias_initializer)
                 z2 = tf.matmul(hidden1, weight) + bias
                 #norm_z2 = tf.contrib.layers.batch_norm(z2, center=True, scale=True,
@@ -434,7 +438,7 @@ class Model(object):
                 logits = tf.nn.relu(z2, name="logits")
 
                 logits_ss, logits_sa = tf.split(logits,
-                                                [net_config.label_first_size, net_config.label_second_size],
+                                                [self.net_config.label_first_size, self.net_config.label_second_size],
                                                 axis=1, name="split_logits")
 
         self.logits_ss = logits_ss
