@@ -8,7 +8,7 @@ from tensorflow.contrib.seq2seq.python.ops import basic_decoder
 from tensorflow.python.framework import dtypes
 from tensorflow.python.layers import core as layers_core
 from tensorflow.contrib.seq2seq.python.ops.loss import sequence_loss
-
+import numpy as np
 
 class Seq2seq_net_config(object):
     def __init__(self):
@@ -46,7 +46,7 @@ class Seq2seq_net_config(object):
 
         # output part
         self.is_predict_sa = False
-        if self.is_predict_sa is True:
+        if self.is_predict_sa is False:
             self.output_size = 8
             self.sa_loss_ratio = 0
         else:
@@ -139,22 +139,43 @@ class Seq2seqModel(Model):
         self.encoder_final_state = _rnn_final_state
         return _rnn_output, _rnn_final_state
 
+    @staticmethod
+    def pad_start_signal(inputs):
+        """
+        pad the inputs with start signal of all ones
+        :param inputs: tensor have shape [batch_size, seq_len, feature]
+        :return: padded inputs [batch_size, 1 + seq_len, seq_len]
+        """
+        _input_slice = tf.slice(inputs, [0, 0, 0], [-1, 1, -1])
+        _slice_shape = tf.shape(_input_slice)
+        start_signal = tf.ones(_slice_shape)
+        _input_c = tf.concat([start_signal, inputs], axis=1)
+        return _input_c
+
     def build_decoder(self, encoder_output, encoder_final_state, target, seq_len):
         with tf.variable_scope("rnn_decoder", initializer=self.weight_initializer):
             # prepare helper
             if self.is_training:
-                # TODO add "GO" signal before decoder input
+                # add "GO" signal before decoder input
                 # the decoder input should be the targets(labels)
-                _decoder_input = target
+                _decoder_input = self.pad_start_signal(target)
                 helper = helper_py.TrainingHelper(_decoder_input, seq_len)
             else:
-                # TODO prepare embed matrix, start_token, end_token
-                embed_mat = None
-                start_tokens = None
-                end_token = None
+                # prepare embed matrix, start_token, end_token
+                start_code = np.ones(self.net_config.output_size)
+                end_code = np.zeros(self.net_config.output_size)
+                embed_mat = np.identity(self.net_config.output_size)
+                embed_mat = np.vstack([start_code, end_code, embed_mat])
+                embed_mat = tf.convert_to_tensor(embed_mat)
+                # start_tokens vector of ones, length is batch size
+                start_tokens = tf.ones(tf.slice(tf.shape(target), [0], [1]))
+                # end token is a scalar
+                end_token = 0
                 helper = helper_py.GreedyEmbeddingHelper(embed_mat, start_tokens, end_token)
 
+            # get rnn cell for decoder
             cell = self.get_rnn_cell(self.net_config.decoder_hidden_num)
+            # build decoder
             _decoder = basic_decoder.BasicDecoder(
                 cell=cell,
                 helper=helper,
@@ -163,6 +184,7 @@ class Seq2seqModel(Model):
                 output_layer=layers_core.Dense(self.net_config.ouput_size, use_bias=False))
 
             batch_max_len = tf.reduce_max(seq_len)
+            # build the decoder layer
             final_outputs, final_state = decoder.dynamic_decode(
                 _decoder, output_time_major=False,
                 maximum_iterations=batch_max_len)
@@ -191,7 +213,6 @@ class Seq2seqModel(Model):
 
     def build_loss(self, logits_ss, logits_sa, labels_ss, labels_sa, seq_len):
         with tf.variable_scope("loss_operator"):
-            #TODO cut labels to the same size of logits
             #TODO prepare weights
             weights = None
             loss_ss = sequence_loss(

@@ -203,10 +203,15 @@ def test_something():
     graph = tf.Graph()
     file_name = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
     with graph.as_default():
-        input_pl = tf.placeholder(tf.float32, (3,))
+        input_pl = tf.placeholder(tf.float32, (None, None, 3))
         _input = tf.convert_to_tensor(input_pl)
+        _input_slice = tf.slice(_input, [0, 0, 0], [-1, 1, -1])
+        _slice_shape = tf.shape(_input_slice)
+        start_signal = tf.ones(_slice_shape)
+        _input_c = tf.concat([start_signal, _input], axis=1)
         init_op = tf.group(tf.global_variables_initializer(),
                        tf.local_variables_initializer())
+        batch_size = tf.slice(tf.shape(_input), [0], [1])
 
     # Create a session for running operations in the Graph.
     with tf.Session(graph=graph) as session:
@@ -214,10 +219,16 @@ def test_something():
         # Initialize the variables (the trained variables and the
         # epoch counter).
         session.run(init_op)
-        for i in range(10):
-            value = np.asarray([i]*3, dtype=np.float32)
+        for i in range(1, 4):
+            value = np.asarray([[[i]*3]*4]*i, dtype=np.float32)
             fd = {input_pl: value}
-            ret = session.run(_input, feed_dict=fd)
+            ret = session.run(batch_size, feed_dict=fd)
             print(ret)
 
+
+start_code = np.ones(8)
+end_code = np.zeros(8)
+embed_mat = np.identity(8)
+embed_mat = np.vstack([start_code, end_code, embed_mat])
+print(embed_mat)
 test_something()
