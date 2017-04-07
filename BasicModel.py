@@ -113,6 +113,7 @@ class Model(object):
         self.moving_average_train_op = None
         self.moving_average_maintainer = None
         self.q_8_accuracy = None
+        self.confusion_mat = None
         self.fetches = None
         self.filename_queue = None
         self.rnn_output = None
@@ -164,6 +165,7 @@ class Model(object):
                 "loss": self.loss,
                 "objective": self.moving_average_train_op,
                 "evaluation": self.q_8_accuracy,
+                "confusion_matrix": self.confusion_mat,
                 "summary": summary_op
             }
         elif self.mode == "valid" or self.mode == "test":
@@ -180,6 +182,7 @@ class Model(object):
             self.fetches = {
                 "loss": self.loss,
                 "evaluation": self.q_8_accuracy,
+                "confusion_matrix": self.confusion_mat,
                 "summary": tf.summary.merge([tf.summary.scalar("valid_loss", self.loss),
                                              tf.summary.scalar("valid_accuracy", self.q_8_accuracy)],
                                             name="valid_summary"),
@@ -492,7 +495,7 @@ class Model(object):
 
             true_labels = tf.add(tf.cast(tf.argmax(one_hot_labels, axis=1), dtype=tf.int32),
                                  tf.reduce_sum(one_hot_labels, axis=1))
-            conf_mat = tf.confusion_matrix(logits_preds, true_labels, num_classes=9)
+            conf_mat = tf.confusion_matrix(true_labels, logits_preds, num_classes=9)
             conf_mat_8 = tf.slice(conf_mat, begin=[1, 1], size=[8, 8], name="confusion_mat8")
 
             tps = tf.diag_part(conf_mat_8, name="true_positives")
@@ -504,6 +507,7 @@ class Model(object):
             example_count = tf.slice(tf.shape(logits_ss), [0], [1])
             tf.summary.scalar("accuracy", q_8)
         self.q_8_accuracy = q_8
+        self.confusion_mat = conf_mat
         return q_8, example_count
 
     ##################################

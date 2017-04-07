@@ -23,27 +23,11 @@ tf.app.flags.DEFINE_integer('epoch_num', 10000,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
+tf.app.flags.DEFINE_boolean('is_seq2seq_model', False,
+                            """Whether to log device placement.""")
+
 tf.app.flags.DEFINE_integer("batch_size", 64,
                             "number of batches")
-
-
-
-def evaluate(session, e_model):
-    """
-
-    :param session:
-    :param e_model:
-    :return:
-    """
-    e_val = 0
-    example_count = 0
-    for i in range(e_model.batch_per_epoch):
-        ret = session.run(e_model.fetches)
-        e_val += ret["evaluation"]
-        example_count += ret["example_count"]
-    else:
-        e_val /= i
-    print("evaluate %d proteins, get accuracy: %f" % (example_count/net_config.seq_len, e_val))
 
 
 class EarlyStop(object):
@@ -82,14 +66,18 @@ def main():
     early_stop = EarlyStop(30)
     gf = tf.Graph()
     with gf.as_default():
-        #train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
-        train_model = Seq2seqModel(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
+        if not FLAGS.is_seq2seq_model:
+            train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
+        else:
+            train_model = Seq2seqModel(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
         train_model.build_graph()
         ft = train_model.fetches
 
         with tf.name_scope("valid"):
-            #valid_model = Model(FLAGS, "valid")
-            valid_model = Seq2seqModel(FLAGS, "valid")
+            if not FLAGS.is_seq2seq_model:
+                valid_model = Model(FLAGS, "valid")
+            else:
+                valid_model = Seq2seqModel(FLAGS, "valid")
             valid_model.build_graph()
 
         valid_saver = tf.train.Saver(max_to_keep=1, name="valid_saver")
@@ -123,7 +111,9 @@ def main():
                         break
 
                     sv.summary_computed(sess, ret["summary"])
-                    print(ret["loss"], ret["evaluation"])
+
+                    print(ret["loss"], ret["evaluation"], np.sum(ret["confusion_matrix"]))
+                    print(ret["confusion_matrix"])
 
 
 
