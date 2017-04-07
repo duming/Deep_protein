@@ -58,6 +58,7 @@ class Seq2seq_net_config(object):
 
 seq2seq_config = Seq2seq_net_config()
 
+
 class Seq2seqModel(Model):
     def __init__(self, config, mode, input_file_list=None, net_config=seq2seq_config):
         super(Seq2seqModel, self).__init__(config, mode, input_file_list, net_config)
@@ -66,6 +67,35 @@ class Seq2seqModel(Model):
         self.encoder_output = None
         self.encoder_final_state = None
         self.decoder_output = None
+
+    def split_labels(self, labels):
+        """
+        split the label to secondary structure part and solvent accessibility part
+        override the function, which don't flatten the labels
+        :param labels:
+        :return:
+        """
+        with tf.variable_scope("split_label"):
+            labels_ss, labels_sa = tf.split(labels,
+                                            [self.net_config.label_first_size, self.net_config.label_second_size],
+                                            axis=2, name="split_labels")
+
+        return labels_ss, labels_sa
+
+    def build_input(self):
+        """
+        override to adjust the shape of labels
+        :return:
+        """
+        super(Seq2seqModel, self).build_input()
+        # adjust the shape
+        _max_len = tf.reduce_max(self.seq_lens)
+        self.labels_ss = tf.slice(self.labels_ss, [0, 0, 0], [-1, _max_len, -1])
+        self.labels_sa = tf.slice(self.labels_sa, [0, 0, 0], [-1, _max_len, -1])
+        # need to reshape the labels in order to set the last dimension to a fix size.
+        # Since the the rnn cell need the input to have a fixed last dimension
+        self.labels_ss = tf.reshape(self.labels_ss, [-1, _max_len, self.net_config.label_first_size])
+        self.labels_sa = tf.reshape(self.labels_sa, [-1, _max_len, self.net_config.label_second_size])
 
     def build_embedding(self, seq_features, profile):
         with tf.variable_scope("preprocess"):
@@ -128,10 +158,14 @@ class Seq2seqModel(Model):
             _inputs = features
             f_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
             b_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
+            """
             _outputs, _states = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
                                                           sequence_length=seq_len,
                                                           dtype=tf.float32,
                                                           )
+            """
+            _outputs, _states = tf.nn.dynamic_rnn(f_cell, _inputs, sequence_length=seq_len, dtype=tf.float32)
+
             # concatenate forward and backward tensor
             _rnn_output = tf.concat(_outputs, axis=2)
             _rnn_final_state = tf.concat(_states, axis=-1)
@@ -148,14 +182,25 @@ class Seq2seqModel(Model):
         """
         _input_slice = tf.slice(inputs, [0, 0, 0], [-1, 1, -1])
         _slice_shape = tf.shape(_input_slice)
-        start_signal = tf.ones(_slice_shape)
+        start_signal = tf.ones(_slice_shape, dtype=tf.float32)
         _input_c = tf.concat([start_signal, inputs], axis=1)
         return _input_c
 
     def build_decoder(self, encoder_output, encoder_final_state, target, seq_len):
+        """
+
+        :param encoder_output: the output after each step of encoder execution, only useful for attention
+        :param encoder_final_state: the final state of encoder, should be the initial state of decoder
+                                    when the number of hidden units of encoder and decoder are not equal,  there should
+                                    be a conversion
+        :param target: target must be one-hot encoding
+        :param seq_len:
+        :return:
+        """
         with tf.variable_scope("rnn_decoder", initializer=self.weight_initializer):
             # prepare helper
             if self.is_training:
+                target = tf.cast(target, tf.float32)
                 # add "GO" signal before decoder input
                 # the decoder input should be the targets(labels)
                 _decoder_input = self.pad_start_signal(target)
@@ -166,22 +211,23 @@ class Seq2seqModel(Model):
                 end_code = np.zeros(self.net_config.output_size)
                 embed_mat = np.identity(self.net_config.output_size)
                 embed_mat = np.vstack([start_code, end_code, embed_mat])
-                embed_mat = tf.convert_to_tensor(embed_mat)
+                embed_mat = tf.convert_to_tensor(embed_mat, dtype=tf.float32)
                 # start_tokens vector of ones, length is batch size
-                start_tokens = tf.ones(tf.slice(tf.shape(target), [0], [1]))
+                start_tokens = tf.ones(tf.slice(tf.shape(seq_len), [0], [1]), dtype=tf.int32)
                 # end token is a scalar
                 end_token = 0
                 helper = helper_py.GreedyEmbeddingHelper(embed_mat, start_tokens, end_token)
 
             # get rnn cell for decoder
-            cell = self.get_rnn_cell(self.net_config.decoder_hidden_num)
+            cell = self.get_rnn_cell(hidden_units=self.net_config.decoder_hidden_num)
             # build decoder
             _decoder = basic_decoder.BasicDecoder(
                 cell=cell,
                 helper=helper,
-                initial_state=cell.zero_state(
-                    dtype=dtypes.float32, batch_size=self.batch_size),
-                output_layer=layers_core.Dense(self.net_config.ouput_size, use_bias=False))
+                #initial_state=cell.zero_state(
+                #    dtype=dtypes.float32, batch_size=self.batch_size),
+                initial_state=encoder_final_state,
+                output_layer=layers_core.Dense(self.net_config.output_size, use_bias=False))
 
             batch_max_len = tf.reduce_max(seq_len)
             # build the decoder layer
@@ -191,30 +237,38 @@ class Seq2seqModel(Model):
             self.decoder_output = final_outputs[0]
             return self.decoder_output
 
-
     def build_inference(self, seq_features, profile, is_reuse=False):
-        embed_output = self.build_embedding(seq_features, profile)
-        conv_output = self.build_convolution(embed_output)
-        encoder_output, encoder_final_state = self.build_encoder(conv_output, self.seq_lens)
-        decoder_output = self.build_decoder(encoder_output, encoder_final_state, self.seq_lens)
+        """
+        currently do not support multitask learning
+        :param seq_features:
+        :param profile:
+        :param is_reuse:
+        :return:
+        """
+        with tf.variable_scope("Model", reuse=is_reuse, initializer=self.weight_initializer):
+            embed_output = self.build_embedding(seq_features, profile)
+            conv_output = self.build_convolution(embed_output)
+            encoder_output, encoder_final_state = self.build_encoder(conv_output, self.seq_lens)
+            decoder_output = self.build_decoder(encoder_output, encoder_final_state, self.labels_ss, self.seq_lens)
 
-        logits = decoder_output
-        if self.net_config.is_predict_sa:
-            logits_ss, logits_sa = tf.split(logits,
-                                            [self.net_config.label_first_size, self.net_config.label_second_size],
-                                            axis=1, name="split_logits")
-        else:
-            logits_ss = logits
-            logits_sa = None
-        self.logits_ss = logits_ss
-        self.logits_sa = logits_sa
+            logits = decoder_output
+            if self.net_config.is_predict_sa:
+                logits_ss, logits_sa = tf.split(logits,
+                                                [self.net_config.label_first_size, self.net_config.label_second_size],
+                                                axis=1, name="split_logits")
+            else:
+                logits_ss = logits
+                logits_sa = None
+            self.logits_ss = logits_ss
+            self.logits_sa = logits_sa
 
         return logits_ss, logits_sa
 
     def build_loss(self, logits_ss, logits_sa, labels_ss, labels_sa, seq_len):
         with tf.variable_scope("loss_operator"):
-            #TODO prepare weights
-            weights = None
+            # prepare weights
+            weights = tf.cast(tf.sign(tf.reduce_max(labels_ss, axis=-1)), tf.float32)
+            labels_ss = tf.reduce_max(labels_ss, axis=-1)
             loss_ss = sequence_loss(
                 logits_ss, labels_ss, weights,
                 average_across_timesteps=True,
@@ -235,3 +289,15 @@ class Seq2seqModel(Model):
         self.loss = loss
         return loss
 
+    def build_accuracy(self, logits_ss, one_hot_labels, input_length=None):
+        """
+        override to adapt the shape of tensor
+        :param logits_ss:
+        :param one_hot_labels:
+        :param input_length:
+        :return:
+        """
+        with tf.variable_scope("accuracy"):
+            logits_ss = tf.reshape(logits_ss, [-1, self.net_config.output_size])
+            one_hot_labels = tf.reshape(one_hot_labels, [-1, self.net_config.output_size])
+            super(Seq2seqModel, self).build_accuracy(logits_ss, one_hot_labels)

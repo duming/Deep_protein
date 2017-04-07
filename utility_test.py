@@ -204,6 +204,7 @@ def test_something():
     file_name = "/home/dm/data_sets/cullpdb+profile_6133_filtered.tfrecords"
     with graph.as_default():
         input_pl = tf.placeholder(tf.float32, (None, None, 3))
+        _input_pl2 = tf.placeholder(tf.float32, (None, ))
         _input = tf.convert_to_tensor(input_pl)
         _input_slice = tf.slice(_input, [0, 0, 0], [-1, 1, -1])
         _slice_shape = tf.shape(_input_slice)
@@ -211,7 +212,11 @@ def test_something():
         _input_c = tf.concat([start_signal, _input], axis=1)
         init_op = tf.group(tf.global_variables_initializer(),
                        tf.local_variables_initializer())
+
         batch_size = tf.slice(tf.shape(_input), [0], [1])
+        batch_size2 = tf.ones([tf.shape(_input_pl2)[0]])
+        slice_input = tf.slice(_input_c, [0, 0, 0], [-1, batch_size[0], -1])
+        slice_input = tf.reshape(slice_input, [batch_size[0], -1, 3])
 
     # Create a session for running operations in the Graph.
     with tf.Session(graph=graph) as session:
@@ -221,14 +226,11 @@ def test_something():
         session.run(init_op)
         for i in range(1, 4):
             value = np.asarray([[[i]*3]*4]*i, dtype=np.float32)
-            fd = {input_pl: value}
-            ret = session.run(batch_size, feed_dict=fd)
+            value2 = np.asarray([i]*i, dtype=np.float32)
+            fd = {input_pl: value, _input_pl2: value2}
+            ret = session.run(slice_input, feed_dict=fd)
             print(ret)
 
 
-start_code = np.ones(8)
-end_code = np.zeros(8)
-embed_mat = np.identity(8)
-embed_mat = np.vstack([start_code, end_code, embed_mat])
-print(embed_mat)
+
 test_something()

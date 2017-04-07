@@ -4,6 +4,7 @@ from BasicModel import *
 import pickle as pkl
 from testing import run_once
 from operator import gt
+from seq2seq_model import Seq2seqModel
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -81,12 +82,14 @@ def main():
     early_stop = EarlyStop(30)
     gf = tf.Graph()
     with gf.as_default():
-        train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
+        #train_model = Model(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
+        train_model = Seq2seqModel(FLAGS, "train", ["/home/dm/data_sets/cullpdb+profile_6133_filtered_train.tfrecords"])
         train_model.build_graph()
         ft = train_model.fetches
 
         with tf.name_scope("valid"):
-            valid_model = Model(FLAGS, "valid")
+            #valid_model = Model(FLAGS, "valid")
+            valid_model = Seq2seqModel(FLAGS, "valid")
             valid_model.build_graph()
 
         valid_saver = tf.train.Saver(max_to_keep=1, name="valid_saver")
