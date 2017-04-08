@@ -23,7 +23,7 @@ tf.app.flags.DEFINE_integer('epoch_num', 10000,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-tf.app.flags.DEFINE_boolean('is_seq2seq_model', False,
+tf.app.flags.DEFINE_boolean('is_seq2seq_model', True,
                             """Whether to log device placement.""")
 
 tf.app.flags.DEFINE_integer("batch_size", 64,
@@ -114,6 +114,7 @@ def main():
 
                     print(ret["loss"], ret["evaluation"], np.sum(ret["confusion_matrix"]))
                     print(ret["confusion_matrix"])
+                    #print(ret["debug"])
 
 
 

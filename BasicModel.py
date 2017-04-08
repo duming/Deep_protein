@@ -119,6 +119,7 @@ class Model(object):
         self.rnn_output = None
         self.summary_loss = None
         self.summary_accuracy = None
+        self.debug_outptu = None
 
     def _get_variable_with_regularization(self, name, shape, initializer=None):
         var = tf.get_variable(
@@ -166,6 +167,7 @@ class Model(object):
                 "objective": self.moving_average_train_op,
                 "evaluation": self.q_8_accuracy,
                 "confusion_matrix": self.confusion_mat,
+                "debug": self.debug_outptu,
                 "summary": summary_op
             }
         elif self.mode == "valid" or self.mode == "test":

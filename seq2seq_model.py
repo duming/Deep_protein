@@ -268,7 +268,8 @@ class Seq2seqModel(Model):
         with tf.variable_scope("loss_operator"):
             # prepare weights
             weights = tf.cast(tf.sign(tf.reduce_max(labels_ss, axis=-1)), tf.float32)
-            labels_ss = tf.reduce_max(labels_ss, axis=-1)
+            self.debug_outptu = weights
+            labels_ss = tf.argmax(labels_ss, axis=-1)
             loss_ss = sequence_loss(
                 logits_ss, labels_ss, weights,
                 average_across_timesteps=True,
