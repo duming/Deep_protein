@@ -205,6 +205,7 @@ def test_something():
     with graph.as_default():
         input_pl = tf.placeholder(tf.float32, (None, None, 3))
         _input_pl2 = tf.placeholder(tf.float32, (None, ))
+        _scaler_pl = tf.placeholder(tf.int32, [1])
         _input = tf.convert_to_tensor(input_pl)
         _input_slice = tf.slice(_input, [0, 0, 0], [-1, 1, -1])
         _slice_shape = tf.shape(_input_slice)
@@ -217,6 +218,17 @@ def test_something():
         batch_size2 = tf.ones([tf.shape(_input_pl2)[0]])
         slice_input = tf.slice(_input_c, [0, 0, 0], [-1, batch_size[0], -1])
         slice_input = tf.reshape(slice_input, [batch_size[0], -1, 3])
+        pad_slice = tf.convert_to_tensor([[[0, 0, 0]]], dtype=tf.float32)
+        pad = tf.tile(pad_slice, [batch_size[0], 4 - tf.shape(slice_input)[0], 1])
+        pad_output = tf.concat([slice_input, pad], axis=1)
+        output_tokens = tf.reduce_sum(pad_output, axis=2)
+        zero_tensor = tf.zeros_like(output_tokens)
+        cond = tf.cast(tf.greater(output_tokens, zero_tensor), tf.int32)
+
+        embed_mat = np.identity(4)
+        embed_mat = tf.convert_to_tensor(embed_mat, dtype=tf.int32)
+        embed = tf.nn.embedding_lookup(embed_mat, _scaler_pl)
+
 
     # Create a session for running operations in the Graph.
     with tf.Session(graph=graph) as session:
@@ -224,12 +236,15 @@ def test_something():
         # Initialize the variables (the trained variables and the
         # epoch counter).
         session.run(init_op)
-        for i in range(1, 4):
+        for i in range(1, 5):
             value = np.asarray([[[i]*3]*4]*i, dtype=np.float32)
             value2 = np.asarray([i]*i, dtype=np.float32)
-            fd = {input_pl: value, _input_pl2: value2}
-            ret = session.run(slice_input, feed_dict=fd)
-            print(ret)
+            fd = {input_pl: value, _input_pl2: value2, _scaler_pl: [i]}
+            ret = session.run([embed], feed_dict=fd)
+            print("###################")
+            print(ret[0])
+            print("#")
+            #print(ret[1])
 
 
 

@@ -2,6 +2,7 @@ import tensorflow as tf
 from BasicModel import *
 from data_process import *
 import pickle as pkl
+import numpy as np
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -14,15 +15,18 @@ tf.app.flags.DEFINE_string("checkpoint_dir", "/home/dm/PycharmProjects/Deep_prot
 def run_once(session, model, data_set):
     accuracy = 0
     count = 0
+    confusion_mat = np.zeros([9, 9], dtype=np.int32)
     while True:
         b_data, b_label, b_len, is_end = data_set.next_batch(FLAGS.batch_size)
         count += len(b_data)
         fd = model.get_fed_dict(input_data=b_data, input_label=b_label, input_len=b_len)
         val_dict = session.run(model.fetches, feed_dict=fd)
         accuracy += val_dict["evaluation"] * len(b_data)
+        confusion_mat += val_dict["confusion_matrix"]
         print(val_dict["evaluation"])
         if is_end:
             break
+    print(confusion_mat)
     return accuracy / count, count, val_dict
 
 

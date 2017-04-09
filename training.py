@@ -87,8 +87,9 @@ def main():
             iter = 0
             while True:#not sv.should_stop():
                 iter += 1
-                if iter % 100 == 0:
+                if iter % 20 == 0:
                     # validation
+                    print("start validation")
                     valid_precision, count, valid_ret = run_once(sess, valid_model, valid_dataset)
                     print(valid_precision, count, early_stop.step_from_best)
 

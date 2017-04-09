@@ -67,6 +67,8 @@ class Seq2seqModel(Model):
         self.encoder_output = None
         self.encoder_final_state = None
         self.decoder_output = None
+        # max sequence length in current batch
+        self.curr_max_len = None
 
     def split_labels(self, labels):
         """
@@ -90,6 +92,7 @@ class Seq2seqModel(Model):
         super(Seq2seqModel, self).build_input()
         # adjust the shape
         _max_len = tf.reduce_max(self.seq_lens)
+        self.curr_max_len = _max_len
         self.labels_ss = tf.slice(self.labels_ss, [0, 0, 0], [-1, _max_len, -1])
         self.labels_sa = tf.slice(self.labels_sa, [0, 0, 0], [-1, _max_len, -1])
         # need to reshape the labels in order to set the last dimension to a fix size.
@@ -210,12 +213,12 @@ class Seq2seqModel(Model):
                 start_code = np.ones(self.net_config.output_size)
                 end_code = np.zeros(self.net_config.output_size)
                 embed_mat = np.identity(self.net_config.output_size)
-                embed_mat = np.vstack([start_code, end_code, embed_mat])
+                #embed_mat = np.vstack([start_code, end_code, embed_mat])
                 embed_mat = tf.convert_to_tensor(embed_mat, dtype=tf.float32)
                 # start_tokens vector of ones, length is batch size
                 start_tokens = tf.ones(tf.slice(tf.shape(seq_len), [0], [1]), dtype=tf.int32)
                 # end token is a scalar
-                end_token = 0
+                end_token = 10 # set a impossible number that force decoding to the end
                 helper = helper_py.GreedyEmbeddingHelper(embed_mat, start_tokens, end_token)
 
             # get rnn cell for decoder
@@ -227,7 +230,9 @@ class Seq2seqModel(Model):
                 #initial_state=cell.zero_state(
                 #    dtype=dtypes.float32, batch_size=self.batch_size),
                 initial_state=encoder_final_state,
-                output_layer=layers_core.Dense(self.net_config.output_size, use_bias=False))
+                output_layer=layers_core.Dense(self.net_config.output_size, activation=tf.nn.relu,
+                                               use_bias=False)
+            )
 
             batch_max_len = tf.reduce_max(seq_len)
             # build the decoder layer
@@ -261,6 +266,11 @@ class Seq2seqModel(Model):
                 logits_sa = None
             self.logits_ss = logits_ss
             self.logits_sa = logits_sa
+
+            if not self.is_training:
+                # padding the output to the input length
+                _curr_len = tf.shape(self.logits_ss)[1]
+                self.logits_ss = tf.pad(self.logits_ss, [[0, 0], [0, self.curr_max_len - _curr_len], [0, 0]])
 
         return logits_ss, logits_sa
 

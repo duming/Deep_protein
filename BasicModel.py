@@ -188,7 +188,8 @@ class Model(object):
                 "summary": tf.summary.merge([tf.summary.scalar("valid_loss", self.loss),
                                              tf.summary.scalar("valid_accuracy", self.q_8_accuracy)],
                                             name="valid_summary"),
-                "step": self.global_step
+                "step": self.global_step,
+                "debug": [self.debug_outptu, self.logits_ss]
             }
         elif self.mode == "inference":
             self.build_inference(self.seq_features, self.profile, is_reuse=False)
@@ -488,21 +489,26 @@ class Model(object):
         :return:
         """
         with tf.variable_scope("accuracy"):
-            logits_ss = tf.nn.softmax(logits_ss)
-            logits_preds = tf.add(tf.cast(tf.argmax(logits_ss, axis=1), dtype=tf.int32),
-                                  tf.cast(
-                                      tf.round(tf.reduce_sum(logits_ss, axis=1)),
-                                      dtype=tf.int32)
+            _argmax_logits_ss = tf.argmax(tf.nn.softmax(logits_ss), axis=1)
+            _sum_logits_ss = tf.reduce_sum(logits_ss, axis=1)
+            _shift = tf.cast(
+                tf.greater(_sum_logits_ss, tf.zeros_like(_sum_logits_ss)),
+                tf.int32
+            )
+            self.debug_outptu = logits_ss
+            logits_preds = tf.add(tf.cast(_argmax_logits_ss, dtype=tf.int32),
+                                  _shift
                                   )
 
             true_labels = tf.add(tf.cast(tf.argmax(one_hot_labels, axis=1), dtype=tf.int32),
                                  tf.reduce_sum(one_hot_labels, axis=1))
             conf_mat = tf.confusion_matrix(true_labels, logits_preds, num_classes=9)
             conf_mat_8 = tf.slice(conf_mat, begin=[1, 1], size=[8, 8], name="confusion_mat8")
+            predict_zero_case = tf.slice(conf_mat, begin=[1, 0], size=[8, 1])
 
             tps = tf.diag_part(conf_mat_8, name="true_positives")
             true_positive = tf.cast(tf.reduce_sum(tps), tf.float32)
-            total = tf.cast(tf.reduce_sum(conf_mat_8), tf.float32)
+            total = tf.cast(tf.reduce_sum(conf_mat_8) + tf.reduce_sum(predict_zero_case), tf.float32)
             q_8 = tf.div(true_positive, total, "accuracy_q8")
 
             # additional info for debug and monitor
