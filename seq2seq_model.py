@@ -39,10 +39,10 @@ class Seq2seq_net_config(object):
         # rnn part
         # encoder part
         self.encoder_cell_num = 1
-        self.encoder_hidden_num = 50
+        self.encoder_hidden_num = 128
         # decoder part
         self.decoder_cell_num = 1
-        self.decoder_hidden_num = 50
+        self.decoder_hidden_num = 128
 
         # output part
         self.is_predict_sa = False
@@ -185,7 +185,7 @@ class Seq2seqModel(Model):
         """
         _input_slice = tf.slice(inputs, [0, 0, 0], [-1, 1, -1])
         _slice_shape = tf.shape(_input_slice)
-        start_signal = tf.ones(_slice_shape, dtype=tf.float32)
+        start_signal = tf.zeros(_slice_shape, dtype=tf.float32)
         _input_c = tf.concat([start_signal, inputs], axis=1)
         return _input_c
 
@@ -210,13 +210,14 @@ class Seq2seqModel(Model):
                 helper = helper_py.TrainingHelper(_decoder_input, seq_len)
             else:
                 # prepare embed matrix, start_token, end_token
-                start_code = np.ones(self.net_config.output_size)
+                start_code = np.zeros(self.net_config.output_size)
                 end_code = np.zeros(self.net_config.output_size)
                 embed_mat = np.identity(self.net_config.output_size)
-                #embed_mat = np.vstack([start_code, end_code, embed_mat])
+                embed_mat = np.vstack([embed_mat, start_code])
                 embed_mat = tf.convert_to_tensor(embed_mat, dtype=tf.float32)
                 # start_tokens vector of ones, length is batch size
-                start_tokens = tf.ones(tf.slice(tf.shape(seq_len), [0], [1]), dtype=tf.int32)
+                start_tokens = tf.ones(tf.slice(tf.shape(seq_len), [0], [1]), dtype=tf.int32) \
+                    * (self.net_config.output_size + 1)
                 # end token is a scalar
                 end_token = 10 # set a impossible number that force decoding to the end
                 helper = helper_py.GreedyEmbeddingHelper(embed_mat, start_tokens, end_token)
