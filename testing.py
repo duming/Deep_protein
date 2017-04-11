@@ -1,5 +1,6 @@
 import tensorflow as tf
 from BasicModel import *
+from seq2seq_model import Seq2seqModel
 from data_process import *
 import pickle as pkl
 import numpy as np
@@ -55,7 +56,10 @@ def evaluate():
 
     gf = tf.Graph()
     with gf.as_default():
-        test_model = Model(FLAGS, "test")
+        if FLAGS.is_seq2seq_model:
+            test_model = Seq2seqModel(FLAGS, "test")
+        else:
+            test_model = Model(FLAGS, "test")
         test_model.build_graph()
 
 
@@ -88,4 +92,7 @@ if __name__ == "__main__":
                                 "number of batches")
     tf.app.flags.DEFINE_integer("using_moving_average", False,
                                 "whether store from moving averages ")
+
+    tf.app.flags.DEFINE_boolean('is_seq2seq_model', False,
+                                """Whether to log device placement.""")
     evaluate()

@@ -38,10 +38,10 @@ class Seq2seq_net_config(object):
 
         # rnn part
         # encoder part
-        self.encoder_cell_num = 1
+        self.encoder_cell_num = 2
         self.encoder_hidden_num = 128
         # decoder part
-        self.decoder_cell_num = 1
+        self.decoder_cell_num = 2
         self.decoder_hidden_num = 128
 
         # output part
@@ -159,7 +159,9 @@ class Seq2seqModel(Model):
         with tf.variable_scope("rnn_encoder", initializer=self.weight_initializer):
             # construct multilayer rnn
             _inputs = features
-            f_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
+            f_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num,
+                                       layer=self.net_config.encoder_cell_num,
+                                       is_dropout=False)
             b_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
             """
             _outputs, _states = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
@@ -243,6 +245,36 @@ class Seq2seqModel(Model):
             self.decoder_output = final_outputs[0]
             return self.decoder_output
 
+    def build_experiential_decoder(self, encoder_output, encoder_final_state, target, seq_len):
+        with tf.variable_scope("rnn_decoder", initializer=self.weight_initializer):
+            # prepare helper
+            target = tf.cast(target, tf.float32)
+            # add "GO" signal before decoder input
+            # the decoder input should be the targets(labels)
+            _decoder_input = encoder_output
+            helper = helper_py.TrainingHelper(_decoder_input, seq_len)
+
+
+            # get rnn cell for decoder
+            cell = self.get_rnn_cell(hidden_units=self.net_config.decoder_hidden_num,
+                                     layer=self.net_config.decoder_cell_num)
+            # build decoder
+            _decoder = basic_decoder.BasicDecoder(
+                cell=cell,
+                helper=helper,
+                #initial_state=cell.zero_state(
+                #    dtype=dtypes.float32, batch_size=self.batch_size),
+                initial_state=encoder_final_state
+            )
+
+            batch_max_len = tf.reduce_max(seq_len)
+            # build the decoder layer
+            final_outputs, final_state = decoder.dynamic_decode(
+                _decoder, output_time_major=False,
+                maximum_iterations=batch_max_len)
+            self.decoder_output = tf.nn.relu(final_outputs[0])
+            return self.decoder_output
+
     def build_inference(self, seq_features, profile, is_reuse=False):
         """
         currently do not support multitask learning
@@ -255,9 +287,12 @@ class Seq2seqModel(Model):
             embed_output = self.build_embedding(seq_features, profile)
             conv_output = self.build_convolution(embed_output)
             encoder_output, encoder_final_state = self.build_encoder(conv_output, self.seq_lens)
-            decoder_output = self.build_decoder(encoder_output, encoder_final_state, self.labels_ss, self.seq_lens)
+            decoder_output = self.build_experiential_decoder(encoder_output, encoder_final_state, self.labels_ss, self.seq_lens)
 
-            logits = decoder_output
+            conv1_output = tf.layers.conv1d(decoder_output, self.net_config.output_size, 11, padding="same",
+                                            activation=tf.nn.relu)
+
+            logits = conv1_output
             if self.net_config.is_predict_sa:
                 logits_ss, logits_sa = tf.split(logits,
                                                 [self.net_config.label_first_size, self.net_config.label_second_size],
