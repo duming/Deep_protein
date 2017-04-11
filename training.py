@@ -23,7 +23,7 @@ tf.app.flags.DEFINE_integer('epoch_num', 10000,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 
-tf.app.flags.DEFINE_boolean('is_seq2seq_model', True,
+tf.app.flags.DEFINE_boolean('is_seq2seq_model', False,
                             """Whether to log device placement.""")
 
 tf.app.flags.DEFINE_integer("batch_size", 64,
@@ -87,7 +87,7 @@ def main():
             iter = 0
             while True:#not sv.should_stop():
                 iter += 1
-                if iter % 20 == 0:
+                if iter % 100 == 0:
                     # validation
                     print("start validation")
                     valid_precision, count, valid_ret = run_once(sess, valid_model, valid_dataset)
@@ -114,7 +114,8 @@ def main():
                     sv.summary_computed(sess, ret["summary"])
 
                     print(ret["loss"], ret["evaluation"], np.sum(ret["confusion_matrix"]))
-                    print(ret["confusion_matrix"])
+                    if iter % 20 == 0:
+                        print(ret["confusion_matrix"])
                     #print(ret["debug"])
 
 

@@ -34,7 +34,7 @@ class NetConfig(object):
 
         # rnn part
         self.unit_num = 128
-        self.rnn_layer_num = 2
+        self.rnn_layer_num = 1
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
 
@@ -288,14 +288,19 @@ class Model(object):
     # rnn ops
     ####################################
     def get_rnn_cell(self, cell_name=None, hidden_units=32, layer=1, is_dropout=False):
-        cell = tf.contrib.rnn.GRUCell(hidden_units)
+        def get_one_cell(hidden_units, is_dropout):
+            cell = tf.contrib.rnn.GRUCell(hidden_units)
 
-        if is_dropout and self.mode == "train":
-            # apply dropout while training
-            cell = tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=self.net_config.rnn_dropout_prob)
+            if is_dropout and self.mode == "train":
+                # apply dropout while training
+                cell = tf.contrib.rnn.DropoutWrapper(cell, input_keep_prob=self.net_config.rnn_dropout_prob)
+            return cell
 
+        cells = [get_one_cell(hidden_units, is_dropout)]
         if layer > 1:
-            cell = tf.contrib.rnn.MultiRNNCell([cell]*layer)
+            cell = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=False)
+        else:
+            cell = cells[0]
 
         return cell
 
@@ -422,6 +427,7 @@ class Model(object):
                 fc_input = concat_conv
 
             with tf.variable_scope("fully_connected1"):
+                """
                 weight = self._get_variable_with_regularization("weight",
                                                                 self.net_config.fc1)
                 bias = tf.get_variable("bias", self.net_config.fc1[-1], dtype=tf.float32,
@@ -429,16 +435,27 @@ class Model(object):
 
                 flat_conv = tf.reshape(fc_input, [-1, self.net_config.fc1[0]])
                 z1 = tf.matmul(flat_conv, weight) + bias
+                """
+
+                fc_input = tf.layers.dropout(fc_input, rate=self.net_config.rnn_dropout_prob, training=self.is_training)
+                z1 = tf.layers.conv1d(fc_input, self.net_config.fc1[-1], 3, padding="same",
+                                      activation=tf.nn.relu,
+                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(self.net_config.regu_coef))
                 norm_z1 = tf.contrib.layers.batch_norm(z1, center=True, scale=True,
                                                        is_training=self.is_training)
                 hidden1 = tf.nn.relu(norm_z1, name="hidden")
 
             with tf.variable_scope("fully_connected2"):
+                """
                 weight = self._get_variable_with_regularization("weight",
                                                                 self.net_config.fc2)
                 bias = tf.get_variable("bias", self.net_config.fc2[-1], dtype=tf.float32,
                                        initializer=self.bias_initializer)
                 z2 = tf.matmul(hidden1, weight) + bias
+                """
+                z2 = tf.layers.conv1d(hidden1, self.net_config.fc2[-1], 11, padding="same",
+                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(self.net_config.regu_coef))
+                z2 = tf.reshape(z2, [-1, self.net_config.fc2[-1]])
                 #norm_z2 = tf.contrib.layers.batch_norm(z2, center=True, scale=True,
                 #                                       is_training=self.is_training)
                 logits = tf.nn.relu(z2, name="logits")
