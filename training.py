@@ -5,6 +5,7 @@ import pickle as pkl
 from testing import run_once
 from operator import gt
 from seq2seq_model import Seq2seqModel
+from tensorflow.python import debug as tf_debug
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -85,6 +86,8 @@ def main():
         sv = tf.train.Supervisor(logdir=FLAGS.save_path,saver=train_saver, summary_op=None, save_model_secs=300)
         with sv.managed_session() as sess:
             iter = 0
+            #sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+            #sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
             while True:#not sv.should_stop():
                 iter += 1
                 if iter % 100 == 0:

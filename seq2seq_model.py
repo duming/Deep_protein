@@ -17,6 +17,8 @@ class Seq2seq_net_config(object):
         # regularization coefficient
         self.regu_coef = 0.001
         self.seq_len = 700
+        self.rnn_dropout_prob = 0.5
+        self.dropout_prob = 0.5
         '''
         self.out_first_size = 9
         self.out_second_size = 4
@@ -41,8 +43,9 @@ class Seq2seq_net_config(object):
         self.encoder_cell_num = 2
         self.encoder_hidden_num = 128
         # decoder part
-        self.decoder_cell_num = 2
+        self.decoder_cell_num = 1
         self.decoder_hidden_num = 128
+        self.attention_unit_num = 128
 
         # output part
         self.is_predict_sa = False
@@ -69,6 +72,8 @@ class Seq2seqModel(Model):
         self.decoder_output = None
         # max sequence length in current batch
         self.curr_max_len = None
+        # the dynamic batch length
+        self.batch_len = None
 
     def split_labels(self, labels):
         """
@@ -90,6 +95,7 @@ class Seq2seqModel(Model):
         :return:
         """
         super(Seq2seqModel, self).build_input()
+        self.batch_len = tf.shape(self.seq_lens)[0]
         # adjust the shape
         _max_len = tf.reduce_max(self.seq_lens)
         self.curr_max_len = _max_len
@@ -114,6 +120,8 @@ class Seq2seqModel(Model):
             )
 
             embed_output = tf.concat([embed_feature, profile], 2)
+            embed_output = tf.contrib.layers.batch_norm(embed_output, center=True, scale=True, decay=0.9,
+                                                        is_training=self.is_training, scope="batch_norm")
             _activation_summary(embed_output)
             self.embed_output = embed_output
             return embed_output
@@ -147,10 +155,16 @@ class Seq2seqModel(Model):
             z3 = tf.nn.conv1d(embed_output, kernel3, stride=1, padding="SAME", name="conv3")
             conv3 = z3 + bias3
 
+            bypass = tf.layers.conv1d(embed_output, self.net_config.in_second_size + self.net_config.embed_size, 1,
+                                      padding="valid", activation=tf.nn.relu)
+            bypass = self.seq_batch_norm(bypass, name='1')
+
             concat_conv = tf.concat([conv1, conv2, conv3], axis=2)
             conv_relu = tf.nn.relu(concat_conv, name="relu")
-            concat_conv = tf.contrib.layers.batch_norm(conv_relu, center=True, scale=True, decay=0.9,
-                                                       is_training=self.is_training, scope="batch_norm")
+            #concat_conv = tf.contrib.layers.batch_norm(conv_relu, center=True, scale=True, decay=0.9,
+            #                                           is_training=self.is_training, scope="batch_norm")
+            concat_conv = self.seq_batch_norm(concat_conv, name='2')
+            concat_conv = tf.concat([bypass, concat_conv], axis=2)
             _activation_summary(concat_conv)
             self.conv_output = concat_conv
             return concat_conv
@@ -161,15 +175,17 @@ class Seq2seqModel(Model):
             _inputs = features
             f_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num,
                                        layer=self.net_config.encoder_cell_num,
-                                       is_dropout=False)
-            b_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num, is_dropout=False)
-            """
+                                       is_dropout=True)
+            b_cell = self.get_rnn_cell(hidden_units=self.net_config.encoder_hidden_num,
+                                       layer=self.net_config.encoder_cell_num,
+                                       is_dropout=True)
+
             _outputs, _states = tf.nn.bidirectional_dynamic_rnn(f_cell, b_cell, _inputs,
                                                           sequence_length=seq_len,
                                                           dtype=tf.float32,
                                                           )
-            """
-            _outputs, _states = tf.nn.dynamic_rnn(f_cell, _inputs, sequence_length=seq_len, dtype=tf.float32)
+
+            #_outputs, _states = tf.nn.dynamic_rnn(f_cell, _inputs, sequence_length=seq_len, dtype=tf.float32)
 
             # concatenate forward and backward tensor
             _rnn_output = tf.concat(_outputs, axis=2)
@@ -190,6 +206,12 @@ class Seq2seqModel(Model):
         start_signal = tf.zeros(_slice_shape, dtype=tf.float32)
         _input_c = tf.concat([start_signal, inputs], axis=1)
         return _input_c
+
+    def _attention_wrapper(self, rnn_cell, memory, output_size, attention_name=None):
+        attention = wrapper.LuongAttention(self.net_config.attention_unit_num, memory, self.seq_lens, scale=True)
+        attention_cell = wrapper.AttentionWrapper(rnn_cell, attention, output_size)
+        return attention_cell
+
 
     def build_decoder(self, encoder_output, encoder_final_state, target, seq_len):
         """
@@ -225,7 +247,7 @@ class Seq2seqModel(Model):
                 helper = helper_py.GreedyEmbeddingHelper(embed_mat, start_tokens, end_token)
 
             # get rnn cell for decoder
-            cell = self.get_rnn_cell(hidden_units=self.net_config.decoder_hidden_num)
+            cell = self.get_rnn_cell(hidden_units=self.net_config.decoder_hidden_num, is_dropout=True)
             # build decoder
             _decoder = basic_decoder.BasicDecoder(
                 cell=cell,
@@ -258,13 +280,15 @@ class Seq2seqModel(Model):
             # get rnn cell for decoder
             cell = self.get_rnn_cell(hidden_units=self.net_config.decoder_hidden_num,
                                      layer=self.net_config.decoder_cell_num)
+
+            cell = self._attention_wrapper(cell, encoder_output, self.net_config.encoder_hidden_num)
             # build decoder
             _decoder = basic_decoder.BasicDecoder(
                 cell=cell,
                 helper=helper,
-                #initial_state=cell.zero_state(
-                #    dtype=dtypes.float32, batch_size=self.batch_size),
-                initial_state=encoder_final_state
+                initial_state=cell.zero_state(
+                    dtype=dtypes.float32, batch_size=self.batch_len)
+                #initial_state=encoder_final_state
             )
 
             batch_max_len = tf.reduce_max(seq_len)
@@ -274,6 +298,33 @@ class Seq2seqModel(Model):
                 maximum_iterations=batch_max_len)
             self.decoder_output = tf.nn.relu(final_outputs[0])
             return self.decoder_output
+
+    def seq_dropout(self, input_tensor, dropout_rate):
+        """
+        assume input_tensor have the shape of [batchsize, sequence, features]
+        :param input_tensor:
+        :param dropout_rate:
+        :return:
+        """
+        with tf.variable_scope("seq_dropout"):
+            droped = tf.layers.dropout(input_tensor, dropout_rate,
+                                       noise_shape=[self.batch_len, 1, input_tensor._shape[-1]._value],
+                                       training=self.is_training)
+        return droped
+
+    def seq_batch_norm(self, input_tensor, name=""):
+        """
+        assume input_tensor have the shape of [batchsize, sequence, features]
+        :param input_tensor:
+        :return:
+        """
+        with tf.variable_scope("seq_batch_norm" + name):
+            input_tensor = tf.reshape(input_tensor, [-1, input_tensor._shape[-1]._value])
+            ret = tf.contrib.layers.batch_norm(input_tensor, center=True, scale=True, decay=0.9,
+                                                       is_training=self.is_training, scope="batch_norm")
+
+            ret = tf.reshape(ret, [self.batch_len, -1, input_tensor._shape[-1]._value])
+        return ret
 
     def build_inference(self, seq_features, profile, is_reuse=False):
         """
@@ -286,13 +337,33 @@ class Seq2seqModel(Model):
         with tf.variable_scope("Model", reuse=is_reuse, initializer=self.weight_initializer):
             embed_output = self.build_embedding(seq_features, profile)
             conv_output = self.build_convolution(embed_output)
-            encoder_output, encoder_final_state = self.build_encoder(conv_output, self.seq_lens)
-            decoder_output = self.build_experiential_decoder(encoder_output, encoder_final_state, self.labels_ss, self.seq_lens)
+            #encoder_output, encoder_final_state = self.build_encoder(conv_output, self.seq_lens)
 
-            conv1_output = tf.layers.conv1d(decoder_output, self.net_config.output_size, 11, padding="same",
+
+            #encoder_output = tf.contrib.layers.batch_norm(encoder_output, center=True, scale=True, decay=0.9,
+            #                                              is_training=self.is_training, scope="batch_norm_encoder")
+
+
+            decoder_output = self.build_experiential_decoder(conv_output, None, self.labels_ss, self.seq_lens)
+
+            #decoder_output = tf.contrib.layers.batch_norm(decoder_output, center=True, scale=True, decay=0.9,
+            #                                             is_training=self.is_training, scope="batch_norm_decoder")
+            #decoder_output = self.seq_batch_norm(decoder_output, name="decoder")
+
+            conv1_kernel_num = decoder_output._shape[-1]
+            conv1_output = tf.layers.conv1d(decoder_output, conv1_kernel_num, 3, padding="same",
                                             activation=tf.nn.relu)
 
-            logits = conv1_output
+            #conv1_output = tf.contrib.layers.batch_norm(conv1_output, center=True, scale=True, decay=0.9,
+            #                                            is_training=self.is_training, scope="batch_norm_conv1")
+
+           # conv1_output = self.seq_batch_norm(conv1_output, name="conv1")
+           # conv1_output = self.seq_dropout(conv1_output, self.net_config.dropout_prob)
+
+            conv2_output = tf.layers.conv1d(conv1_output, self.net_config.output_size, 11, padding="same",
+                                            activation=tf.nn.relu)
+
+            logits = conv2_output
             if self.net_config.is_predict_sa:
                 logits_ss, logits_sa = tf.split(logits,
                                                 [self.net_config.label_first_size, self.net_config.label_second_size],

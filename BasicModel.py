@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from data_process import *
+from time import process_time
 ########################
 # file input output
 ########################
@@ -33,7 +34,7 @@ class NetConfig(object):
         self.kernel3 = [11, self.embed_size + self.in_second_size, 64]
 
         # rnn part
-        self.unit_num = 128
+        self.unit_num = 64
         self.rnn_layer_num = 1
         self.rnn_dropout_prob = 0.5
         self.rnn_output_size = self.unit_num * 2 + self.kernel1[-1] + self.kernel2[-1] + self.kernel3[-1]
@@ -152,6 +153,7 @@ class Model(object):
         return fd
 
     def build_graph(self):
+        start_time = process_time()
         self.build_input()
         if self.mode == "train":
             self.build_inference(self.seq_features, self.profile, is_reuse=False)
@@ -196,6 +198,8 @@ class Model(object):
             self.fetches = {
                 "logits": self.logits_ss
             }
+        end_time = process_time()
+        print("build model {} in {} sec".format(self.mode, end_time - start_time))
 
     ######################################################
     # input part
@@ -354,7 +358,12 @@ class Model(object):
                     _inputs = tf.concat(_outputs, axis=2)
             _rnn_output = _inputs
             # concatenate the input of the first layer to the output of the last layer
-            output = tf.concat([inputs, _rnn_output], axis=2, name="concat_input_output")
+            bypass_size = inputs._shape[-1]
+            bypass = tf.layers.conv1d(inputs, bypass_size, 1,
+                                      activation=tf.nn.relu,
+                                      bias_regularizer=tf.contrib.layers.l2_regularizer(self.net_config.regu_coef)
+                                      )
+            output = tf.concat([bypass, _rnn_output], axis=2, name="concat_input_output")
         self.rnn_output = output
         return output
 
@@ -407,10 +416,21 @@ class Model(object):
                 z3 = tf.nn.conv1d(preprocessed_feature, kernel3, stride=1, padding="SAME", name="conv3")
                 conv3 = z3 + bias3
 
+                bypass = tf.layers.conv1d(preprocessed_feature,
+                                          self.net_config.in_second_size + self.net_config.embed_size, 1,
+                                          activation=tf.nn.relu,
+                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(self.net_config.regu_coef),
+                                          padding="valid")
+
                 concat_conv = tf.concat([conv1, conv2, conv3], axis=2)
                 conv_relu = tf.nn.relu(concat_conv, name="relu")
                 concat_conv = tf.contrib.layers.batch_norm(conv_relu, center=True, scale=True, decay=0.9,
                                                            is_training=self.is_training, scope="batch_norm")
+                concat_conv = tf.concat([bypass, concat_conv], axis=2)
+
+                concat_conv = tf.layers.dropout(concat_conv, self.net_config.rnn_dropout_prob,
+                                                noise_shape=[concat_conv._shape[0]._value, 1, concat_conv._shape[-1]._value],
+                                                training=self.is_training)
                 _activation_summary(concat_conv)
 
             # rnn part
@@ -426,6 +446,9 @@ class Model(object):
             else:
                 fc_input = concat_conv
 
+            fc_input = tf.layers.dropout(fc_input, self.net_config.rnn_dropout_prob,
+                                            noise_shape=[fc_input._shape[0]._value, 1, fc_input.shape[-1]._value],
+                                            training=self.is_training)
             with tf.variable_scope("fully_connected1"):
                 """
                 weight = self._get_variable_with_regularization("weight",
